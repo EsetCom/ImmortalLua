@@ -1,0 +1,4234 @@
+local best_resolver_by_alarak = "thanks for using this resolver <3"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          --[[ 
+Last update 08.07.25
+
+██████╗░██╗░░░██╗  ░█████╗░██╗░░░░░░█████╗░██████╗░░█████╗░██╗░░██╗
+██╔══██╗╚██╗░██╔╝  ██╔══██╗██║░░░░░██╔══██╗██╔══██╗██╔══██╗██║░██╔╝
+██████╦╝░╚████╔╝░  ███████║██║░░░░░███████║██████╔╝███████║█████═╝░
+██╔══██╗░░╚██╔╝░░  ██╔══██║██║░░░░░██╔══██║██╔══██╗██╔══██║██╔═██╗░
+██████╦╝░░░██║░░░  ██║░░██║███████╗██║░░██║██║░░██║██║░░██║██║░╚██╗
+╚═════╝░░░░╚═╝░░░  ╚═╝░░╚═╝╚══════╝╚═╝░░╚═╝╚═╝░░╚═╝╚═╝░░╚═╝╚═╝░░╚═╝                                                                
+
+local sosihui = require("suck.dick")                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       ]]
+local ffi = require('ffi')
+local bit = require("bit")
+local vector = require('vector')
+local table_new = require('table.new')
+local json = require("json")
+local clipboard = require("gamesense/clipboard")
+local color = require("gamesense/color")
+-- тут по фану добавил
+local pui = require('gamesense/pui')
+local base64 = require('gamesense/base64')
+local clipboard = require('gamesense/clipboard')
+local c_entity = require ('gamesense/entity')
+local http = require ('gamesense/http')
+local vector = require "vector"
+local steamworks = require('gamesense/steamworks')
+local surface = require 'gamesense/surface'     
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          --[[
+ds: neon14827
+tg: @Dobrewo
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               ]]                                                                                     
+local ent_c = {}
+-- не сильно используеться, но добавил ⬇
+ent_c.get_client_entity = vtable_bind('client.dll', 'VClientEntityList003', 3, 'void*(__thiscall*)(void*, int)')
+
+local animation_layer_t = ffi.typeof([[
+    struct {
+        char pad0[0x18];
+        uint32_t m_nSequence;
+        float m_flPrevCycle;
+        float m_flWeight;
+        float m_flWeightDeltaRate;
+        float m_flPlaybackRate;
+        float m_flCycle;
+        void* entity;
+        char pad1[0x4];
+    }**
+]])
+
+local offsets = {
+    animlayer = 0x2990
+}
+
+local function get_animlayer(ent, layer)
+    local ent_ptr = ffi.cast('void***', ent_c.get_client_entity(ent or entity.get_local_player()))
+    local animlayer_ptr = ffi.cast('char*', ent_ptr) + offsets.animlayer
+    local entity_animlayer = ffi.cast(animation_layer_t, animlayer_ptr)[0][layer]
+    return entity_animlayer
+end
+
+local function normalize(value, min, max)
+    return (value - min) / (max - min)
+end
+
+local function bin_value(value, num_bits)
+    local scale_factor = 2 ^ num_bits
+    local scaled_value = math.floor(value * scale_factor + 0.5)
+    local bits = {}
+    for i = num_bits, 1, -1 do
+        local bit_value = 2 ^ (i - 1)
+        if scaled_value >= bit_value then
+            bits[i] = 1
+            scaled_value = scaled_value - bit_value
+        else
+            bits[i] = 0
+        end
+    end
+    return bits
+end
+
+local function insert_first_index(tbl, value, maxSize)
+    if #tbl >= maxSize then
+        table.remove(tbl)
+    end
+    table.insert(tbl, 1, value)
+end
+
+local function average(t)
+    t = t or {}
+    local sum = 0
+    for _, v in pairs(t) do
+        sum = sum + v
+    end
+    return sum / #t
+end
+
+
+local animlayer_average_t = {}
+local animlayer_rec_t = {}
+local velocity_rec_t = {}
+
+local function get_animlayer_rec(ent)
+    animlayer_rec_t[ent] = animlayer_rec_t[ent] or 0
+    return animlayer_rec_t[ent]
+end
+
+local function get_velocity_rec(ent)
+    velocity_rec_t[ent] = velocity_rec_t[ent] or 0
+    return velocity_rec_t[ent]
+end
+
+
+-- local mul, binary_size = 1000000000, 20
+
+
+
+local function table_contains(tbl, val)
+    for _, v in ipairs(tbl) do
+        if v == val then return true end
+    end
+    return false
+end
+
+local RESOLVER_CONST = {
+    MAX_DESYNC_DELTA = 58,
+    JITTER_DETECTION_THRESHOLD = 30,
+    MAX_HISTORY_SIZE = 64
+}
+
+local DESYNC_CONST = {
+    MAX_DESYNC_DELTA = 58,      
+    JITTER_DETECTION_THRESHOLD = 40, 
+    MIN_DESYNC_RANGE = 15,         
+    MAX_DESYNC_RANGE = 58,       
+    HISTORY_SIZE = 10,       
+    CONFIDENCE_DECAY = 0.1,          
+    CONFIDENCE_BOOST = 0.2,          
+    LERP_FACTOR = 0.3            
+}
+
+
+local function calculate_std_dev(history)
+    if #history < 2 then return 0 end
+    local sum, sum_sq = 0, 0
+    for _, v in ipairs(history) do
+        sum = sum + v
+        sum_sq = sum_sq + v * v
+    end
+    local mean = sum / #history
+    return math.sqrt((sum_sq / #history) - (mean * mean))
+end
+
+
+local function get_choke(enemy)
+    local sim_time = entity.get_prop(enemy, "m_flSimulationTime") or 0
+    local data = resolver_data[enemy] or {}
+    local last_sim_time = data.last_sim_time or 0
+    local choke = last_sim_time > 0 and math.floor((sim_time - last_sim_time) / globals.tickinterval()) or 0
+    data.last_sim_time = sim_time
+    resolver_data[enemy] = data
+    return choke
+end
+
+-- !!
+local function init_brute_data(player)
+    if not brute_data[player] then
+        brute_data[player] = {
+            state = "IDLE",
+            yaw_index = 1,
+            body_yaw_index = 1,
+            pitch_index = 1,
+            misses = 0,
+            last_shot_time = 0,
+            end_tick = 0
+        }
+    end
+end
+
+local function get_closest_point(A, B, P)
+    local a_to_p = { P[1] - A[1], P[2] - A[2] }
+    local a_to_b = { B[1] - A[1], B[2] - A[2] }
+    local atb2 = a_to_b[1]^2 + a_to_b[2]^2
+    local atp_dot_atb = a_to_p[1]*a_to_b[1] + a_to_p[2]*a_to_b[2]
+    local t = atp_dot_atb / atb2
+    return { A[1] + a_to_b[1]*t, A[2] + a_to_b[2]*t }
+end
+
+local function adaptive_adjust(player, current_yaw)
+    local data = brute_data[player]
+    if not data then return current_yaw end
+    local desync = entity.get_prop(player, "m_flPoseParameter", 11) * 120 - 60
+    local adjustment = desync > 0 and math.random(-5, 5) or -math.random(-5, 5)
+    return normalize_angle(current_yaw + adjustment)
+end
+
+local function normalize_angle(angle)
+    while angle > 180 do angle = angle - 360 end
+    while angle < -180 do angle = angle + 360 end
+    return angle
+end
+
+debug_info = debug_info or {}
+
+resolver_data = {}
+
+math.clamp = function(value, min_val, max_val)
+    return math.max(min_val, math.min(max_val, value))
+end
+
+local adaptive_resolver = {
+    players = {},
+    angle_sets = {
+        standard = {0, 58, -58, 29, -29, 15, -15, 45, -45},
+        extended = {0, 58, -58, 29, -29, 15, -15, 45, -45, 35, -35, 19, -19, 60, -60}
+    },
+    miss_memory = {},
+    hit_memory = {},
+    current_mode = "standard",
+    last_update = 0,
+    update_interval = 0.1,
+    learning_rate = 0.2,
+    confidence_threshold = 0.6,
+    auto_switch_threshold = 3,
+    debug_mode = true,
+    pattern_threshold = 3,
+    angle_switch_misses = 5,
+    miss_cooldown = 0.05,
+    angle_variation = 5
+}
+
+local adaptive_modes = {"dynamic", "beta", "static"}
+local adaptive_mode_index = 1
+
+local resolver_stats = {
+    total_hits = 0,
+    total_misses = 0
+}
+
+function has_value(tab, val)
+    if type(tab) ~= "table" then return false end
+    for _, value in ipairs(tab) do
+        if value == val then return true end
+    end
+    return false
+end
+
+function log_debug(message)
+    if adaptive_resolver.debug_mode then
+        client.color_log(255, 255, 255, "[IMMORTAL Logs] " .. tostring(message))
+    end
+end
+
+local state_scores = {
+    standing = 1.0,
+    crouching = 0.9,
+    in_air = 1.2,
+    walking = 1.1,
+    slow_walk = 0.95
+}
+
+function math.lerp(start, end_pos, time)
+    if start == end_pos then return end_pos end
+    local frametime = globals.frametime() * 170
+    time = time * math.min(frametime, (1 / 45) * 100)
+    local val = start + (end_pos - start) * globals.frametime() * time
+    return math.abs(val - end_pos) < 0.01 and end_pos or val
+end
+
+
+local math_util = {
+    clamp = function(value, min_val, max_val)
+        return math.max(min_val, math.min(max_val, value))
+    end,
+    angle_diff = function(a, b)
+        local diff = math.abs(((a - b) + 180) % 360 - 180)
+        return diff > 180 and 360 - diff or diff
+    end,
+    normalize_angle = function(angle)
+        while angle > 180 do
+            angle = angle - 360
+        end
+        while angle < -180 do
+            angle = angle + 360
+        end
+        return angle
+    end
+}
+
+local ui_colors = {
+    accent = { r = 255, g = 215, b = 0, a = 255 }, 
+    success = { r = 0, g = 255, b = 0, a = 255 },
+    warning = { r = 255, g = 165, b = 0, a = 255 },
+    neutral = { r = 255, g = 255, b = 255, a = 255 }, 
+    highlight = { r = 0, g = 255, b = 255, a = 255 }
+}
+
+local brute_data = {}
+
+local brute_angles = {
+    yaw = {0, 10, -10, 20, -20, 30, -30, 40, -40, 50, -50, 60, -60, 75, -75, 90, -90, 105, -105, 120, -120, 135, -135, 150, -150, 165, -165, 180},
+    body_yaw = {0, 10, -10, 20, -20, 30, -30, 45, -45, 60, -60, 75, -75},
+    pitch = {89, 84, 79, 74, 69, 64, 94, 99, 104, 109, -89, -84, -79, -74, -69, -64, -94, -99, -104, -109}
+}
+
+local function contains(t, value)
+    for _, v in ipairs(t) do
+        if v == value then return true end
+    end
+    return false
+end
+
+client.exec("Play ambient/tones/elev1")
+
+ui.new_label("LUA", "B", "                \aFFD700FF⚡\aFFD700FF \a778899FFI M M O R T A L\a778899FF \aFFD700FF⚡\aFFD700FF")
+ui.new_label("LUA", "B", "                    ⇙               ⇘")
+
+
+local function get_rainbow_color(time)
+    local r = math.floor(math.sin(time) * 127 + 128)
+    local g = math.floor(math.sin(time + 2) * 126 + 128)
+    local b = math.floor(math.sin(time + 4) * 121 + 120)
+    return string.format("\a%02X%02X%02XFF", r, g, b)
+end
+
+local label_original = ui.new_label("LUA", "B", "         \a909090FFRELEASE      \aFFFFFFFF↪\aFFFFFFFF       \a808080FFv1.0.0\a808080FF")
+client.set_event_callback("paint_ui", function()
+    local time = globals.realtime() * 4
+    local color_code = get_rainbow_color(time)
+    local banner_text = string.format("         \a909090FFRELEASE      \aFFFFFFFF↪\aFFFFFFFF       \a808080FF%sv1.0.0\a808080FF", color_code)
+    ui.set(label_original, banner_text)
+end)
+
+
+
+local label_enabled_default = ui.new_label("LUA", "B", "           \a90EE90FFACTIVE\a90EE90FF      \aFFFFFFFF✔\aFFFFFFFF       \a808080FFDefault\a808080FF")
+--local label_enabled_aggressive = ui.new_label("LUA", "B", "           \a90EE90FFACTIVE\a90EE90FF      \aFFFFFFFF✔\aFFFFFFFF       \a808080FFAggressive\a808080FF")
+--local label_enabled_adaptive = ui.new_label("LUA", "B", "           \a90EE90FFACTIVE\a90EE90FF      \aFFFFFFFF✔\aFFFFFFFF       \a808080FFAdaptive\a808080FF")
+local label_enabled_custom = ui.new_label("LUA", "B", "           \a90EE90FFACTIVE\a90EE90FF      \aFFFFFFFF✔\aFFFFFFFF       \a808080FFCustom\a808080FF")
+ui.new_label("LUA", "B", "                                        ")
+
+
+-- local imp_exp_2 = ui.new_label("CONFIG", "Presets", "\a909090FF ---------------- T 3 M P 3 S T ----------------")
+-- local ui_display_stats = ui.new_checkbox("LUA", "B", " ›  Enemy \a778899FFStats \aFF0000FF[dev]")
+-- local ui_toggle_logs = ui.new_checkbox("LUA", "B", " ›  Enable \a778899FFLogs")
+local darkmode_enabled = ui.new_checkbox("CONFIG", "LUA", "\a778899FF \aD3D3D3FFEnable \a778899FFDark Menu \a90909025", true)
+-- local ui_trashtalk_enable = ui.new_checkbox("CONFIG", "LUA", " ›  Enable \a778899FFTrasktalk ")
+-- local imp_exp_3 = ui.new_label("Rage", "Other", "\a909090FF ---------------- T 3 M P 3 S T ----------------")
+
+-- local label_z3r0 = ui.new_label("Rage", "Other", "\a90909040-- Dont turn it on if IMMORTAL is already enabled !", false)
+
+math.randomseed(client.random_int(1, 1000000))
+
+local trashtalk_enabled = ui.new_checkbox("CONFIG", "LUA", "\a778899FF \aD3D3D3FFEnable \a778899FFAnti 1 \a90909025")
+
+local ui_new_logs_enable = ui.new_checkbox("CONFIG", "LUA", "\a778899FF \aD3D3D3FFEnable \a778899FFInfo \a90909025")
+
+local fixed_opacity_percent = 45
+local current_alpha = 0
+
+local function get_screen_size()
+    return client.screen_size()
+end
+
+client.set_event_callback("paint", function()
+    local screen_w, screen_h = get_screen_size()
+    local r, g, b = 0, 0, 0
+    local target_alpha = 0
+    
+    if ui.get(darkmode_enabled) and ui.is_menu_open() then
+        target_alpha = (fixed_opacity_percent / 100) * 255
+    end
+    
+    current_alpha = current_alpha + (target_alpha - current_alpha) * 0.1
+    local alpha_to_use = math.floor(current_alpha + 0.5)
+    
+    renderer.rectangle(0, 0, screen_w, screen_h, r, g, b, alpha_to_use)
+end)
+
+local ui_resolver_enabled = ui.new_checkbox("LUA", "B", " ›  Enable \a778899FFIMMORTAL \aD3D3D3FFResolver", true)
+local ui_mode_select = ui.new_combobox("LUA", "B", "Preset", {"Default", "Custom"})
+local ui_show_settings = ui.new_checkbox("LUA", "B", "Show settings ❓")
+
+client.set_event_callback("paint", function()
+    if not ui.get(ui_resolver_enabled) then return end
+    
+
+    local time = globals.realtime() * 4
+    local color_code = get_rainbow_color(time)
+    local resolver_text = string.format("› %sIMMORTAL %sResolver Enabled!", color_code, "\aD3D3D3FF")
+
+    renderer.text(10, 10, 255, 255, 255, 255, "", 0, resolver_text)
+end)
+
+local ui_elements = {
+    tst_prediction_factor = ui.new_checkbox("LUA", "B", " Base Prediction", 0, 200, 50, true, "%", 1, { [150] = "Fast Mode Max" }, true),
+    prediction_factor = ui.new_slider("LUA", "B", "\a909090FFPrediction Aggressiveness", 0, 200, 50, true, "%", 1, { [150] = "Fast Mode Max" }),
+    fast_mode = ui.new_checkbox("LUA", "B", "\aD0B0FFFF Fast Predict\aFFFFFFFF \a90909025«\affef00FF⁂\a90909025»"),
+    manual_predict = ui.new_checkbox("LUA", "B", "\a9f9f9fFF Manual Prediction"),
+    manual_states = ui.new_multiselect("LUA", "B", "\a9f9f9f90Manual Predict States", {"\a9f9f9fFFStanding", "\a9f9f9fFFCrouching", "\a9f9f9fFFIn-Air", "\a9f9f9fFFWalking", "\a9f9f9fFFSlow Walk"}),
+    predict_standing = ui.new_slider("LUA", "B", "\a9f9f9f75Standing Prediction", 0, 200, 50, true, "%"),
+    predict_crouching = ui.new_slider("LUA", "B", "\a9f9f9f75Crouching Prediction", 0, 200, 50, true, "%"),
+    predict_air = ui.new_slider("LUA", "B", "\a9f9f9f75In-Air Prediction", 0, 200, 50, true, "%"),
+    predict_walking = ui.new_slider("LUA", "B", "\a9f9f9f75Walking Prediction", 0, 200, 50, true, "%"),
+    predict_slowwalk = ui.new_slider("LUA", "B", "\a9f9f9f75Slow Walk Prediction", 0, 200, 50, true, "%"),
+    ui_smart_yaw_correction = ui.new_checkbox("LUA", "B", "\aD0B0FFFF Correction \a90909025«\affef00FF⁂\a90909025»"),
+--    anti_aim_correction = ui.new_checkbox("LUA", "B", "\aD0B0FFFF⭙ Aim Correction \a90909025«\affef00FF⁂\a90909025»"),
+--    anti_aim_correction_value = ui.new_slider("LUA", "B", "\a909090FFCorrection \aD3D3D3FFValue", -120, 120, 58, true, "°"),
+--    yaw_diff_threshold = ui.new_slider("LUA", "B", "\a909090FFYaw Diff \aD3D3D3FFThreshold", 0, 180, 60, true, "°"),
+    desync_detection = ui.new_checkbox("LUA", "B", "\ac7d667FF⛕ Desync Detection"),
+--    desync_range = ui.new_slider("LUA", "B", "\a909090FFDesync Range\a909090FF", 0, 60, 45, true, "°"),
+    headshot_priority = ui.new_checkbox("LUA", "B", "\a67d77cFF Headshot Priority \a90909025«\a90909035hc\a90909025»"),
+    head_height_adjust = ui.new_slider("LUA", "B", "\a909090FFHead Height Adjust\a909090FF", 0, 100, 50, true, "u"),
+--    defensive_resolver = ui.new_checkbox("LUA", "B", "\a67d77cFF Air Defensive Type Logic \a90909025«\affef00FF⁎\a90909025»", false),
+--    hit_chance_bind = ui.new_hotkey("LUA", "B", "Toggle Hit Chance Override", false),
+    smart_head_aim = ui.new_checkbox("LUA", "B", "\a67d77cFF Smart \aD3D3D3FFHead Aim \a90909025«\affef00FF⁑\a90909025»"),
+    smart_head_hp_threshold = ui.new_slider("LUA", "B", "\a909090FFPlayer HP Threshold \a909090FFfor Head Aim", 0, 100, 20, true, "HP"),
+    smart_body_aim = ui.new_checkbox("LUA", "B", "\a67d77cFF Smart \aD3D3D3FFBody Aim"),
+    smart_body_lethal = ui.new_checkbox("LUA", "B", "\a909090FF Force Body Aim if Lethal"),
+    smart_body_hp_threshold = ui.new_slider("LUA", "B", "\a909090FFEnemy HP Threshold for Body Aim\a909090FF", 0, 100, 50, true, "HP"),
+    t3mp3st_mode = ui.new_checkbox("LUA", "B", "\a80CFFFFF-- ⚡ [Features] ⚡ --\aFFFFFFFF", true),
+--    t3mp3st_mode_two = ui.new_label("LUA", "B", "\a80CFFFFF-- ⚡ FEATUREs ⚡ --\aFFFFFFFF"),
+--    neural_mode = ui.new_checkbox("LUA", "B", "\aDC143CFF Neural Mode \a778899FF AI \a90909025«\aFF0000FF‼\a90909025»"),
+--    neural_priority = ui.new_combobox("LUA", "B", "Neural Priority", {"Yaw", "Position", "Desync"}),
+    enhanced_defensive_fix = ui.new_checkbox("LUA", "B", "\a67d77cFF Enhanced Defensive Fix\a67d77cFF \a90909025«\affef00FF⁎\a90909025»"),
+    a_brute = ui.new_checkbox("LUA", "B", "\aD0B0FFFF Basic Brute\a909090FF"),
+    brute_duration = ui.new_slider("LUA", "B", "\a909090FFBrute Duration", 1, 20, 5, true, "t"),
+--    adaptive_auto_switch = ui.new_checkbox("LUA", "B", "\a67d77cFF Adaptive Auto Switch Angles \a90909025«\a90909020dont work\a90909025»"),
+--    adaptive_learning_rate = ui.new_slider("LUA", "B", "\a909090FFAdaptive Learning Rate", 0, 100, 20, true, "%"),
+    alternative_jitter = ui.new_checkbox("LUA", "B", "\aD0B0FFFF Alternative \aD3D3D3FFDetect Jitter"),
+--    jitter_detection = ui.new_checkbox("LUA", "B", "\aD0B0FFFF Manual Jitter Detection\aFFFFFFFF"),
+--    resolver_correction = ui.new_checkbox("LUA", "B", "\ac7d667FF Resolver Correction\ac7d667FF"),
+--    resolver_correction_intensity = ui.new_slider("LUA", "B", "\a5b5b5bFFResolver Correction Intensity\a5b5b5bFF", 0, 100, 50, true, "%"), -- чучуть мб бесполезно !!!!!!! пахахах, нет
+--    mode_select = ui.new_combobox("LUA", "B", "\a5b5b5bFFSelect Mode\a5b5b5bFF", {"\a67d77cFFLow Ping\a67d77cFF", "\ad66767FFHigh Ping\ad66767FF", "\ac7d667FFBalanced\ac7d667FF"}),
+--    jitter_threshold = ui.new_slider("LUA", "B", "\a909090FFJitter Detection Threshold\a909090FF", 5, 30, 15, true, "σ"),
+--    jitter_yaw_adjust = ui.new_slider("LUA", "B", "\a909090FFJitter Yaw Adjustment\a909090FF", -60, 60, 30, true, "°"),
+--    jitter_lby_threshold = ui.new_slider("LUA", "B", "\a909090FFJitter LBY Stability Threshold\a909090FF", 5, 30, 10, true, "σ"),
+--    flick_detection = ui.new_checkbox("LUA", "B", "\aD0B0FFFF Flick Detection\aFFFFFFFF \a90909025«\affef00FF⁎\a90909025»"),
+--    flick_velocity_threshold = ui.new_slider("LUA", "B", "\a5b5b5bFFFlick Velocity Threshold\a5b5b5bFF", 300, 700, 500, true, "°/s"),
+--    flick_reaction_time = ui.new_slider("LUA", "B", "\a5b5b5bFFFlick Reaction Time\a5b5b5bFF", 50, 200, 100, true, "ms"),
+--    flick_prediction_boost = ui.new_slider("LUA", "B", "\a5b5b5bFFFlick Prediction Boost\a5b5b5bFF", 0, 50, 15, true, "%"),
+--    flick_yaw_correction = ui.new_slider("LUA", "B", "\a5b5b5bFFFlick Yaw Correction\a5b5b5bFF", 0, 30, 10, true, "°"),
+--    flick_mode = ui.new_combobox("LUA", "B", "Flick Mode", {"Fake Flicks", "Defensive Flicks"}),
+--    fuck = ui.new_label("PLAYERS", "Adjustments", "\a90909055════════════════════════════════"),
+--    dynamic_hit_chance_label = ui.new_label("PLAYERS", "Adjustments", "\aB0B0FFFFDynamic\aFFFFFFFF minimum hit chance:"),
+--    confidence_threshold = ui.new_slider("PLAYERS", "Adjustments", "\a909090FFConfidence Threshold for Shooting\a909090FF", 0, 100, 0, true, "%"),
+--    low_confidence_delay_label = ui.new_label("PLAYERS", "Adjustments", "\aB0B0FFFFDynamic\aFFFFFFFF shot delay:"),
+--    low_confidence_delay = ui.new_slider("PLAYERS", "Adjustments", "\a909090FFDelay on Low Confidence\a909090FF", 0, 500, 0, true, "ms"),
+--    fuck_two = ui.new_label("PLAYERS", "Adjustments", "\a90909055════════════════════════════════"),
+    experimental_mode = ui.new_checkbox("LUA", "B", "\aFF0000FF-- [EXPERIMENTAL MODE] --\aFFFFFFFF", true),
+    experimental_mode_two = ui.new_label("LUA", "B", "\aFF0000FF-- ExpERImENtAL --\aFFFFFFFF"),
+    dt_peek_fix = ui.new_checkbox("LUA", "B", "\a67d77cFFDefensive \a67d77cFFFix\a67d77cFF"),
+    resolver_correction = ui.new_checkbox("LUA", "B", "\ac7d667FFPing Correction\ac7d667FF"), -- 
+    resolver_correction_intensity = ui.new_slider("LUA", "B", "\a5b5b5bFFResolver Correction Intensity\a5b5b5bFF", 0, 100, 50, true, "%"), -- чучуть мб бесполезно !!!!!!! пахахах, нет
+    mode_select = ui.new_combobox("LUA", "B", "\a5b5b5bFFSelect Mode\a5b5b5bFF", {"\a67d77cFFLow Ping\a67d77cFF", "\ad66767FFHigh Ping\ad66767FF", "\ac7d667FFBalanced\ac7d667FF"}),
+--    alternative_predict = ui.new_checkbox("LUA", "B", "Additional Prediction\aFF0000FF -- dont use --"),
+--    spread_compensation = ui.new_checkbox("LUA", "B", "\aD0B0FFFFSpread Compensation\aFFFFFFFF \a90909025«\a90909020dont work\a90909025»"),
+--    simple_mode = ui.new_checkbox("LUA", "B", "\aD0B0FFFFSimple Mode\aFFFFFFFF"),
+--    indicators = ui.new_checkbox("LUA", "B", "\a3f7534FFIndicators\a3f7534FF \a90909025«\a90909020dont work\a90909025»"),
+--    neural_visualization = ui.new_checkbox("LUA", "B", "\a3f7534FFNeural Visualization\a3f7534FF \a90909025«\a90909020dont work\a90909025»"),
+    fakelag_optimization = ui.new_checkbox("LUA", "B", "\ac7d667FFFakelag Optimization\ac7d667FF"),
+    dormant_aimbot = ui.new_checkbox("LUA", "B", "\ac7d667FFDormant Aimbot\ac7d667FF"),
+    dormant_min_damage = ui.new_slider("LUA", "B", "\a5b5b5bFFDormant Minimum Damage\a5b5b5bFF", 0, 100, 54, true, "damage"),
+--    dormant_indicator = ui.new_checkbox("LUA", "B", "\a5b5b5bFFDormant Indicator\a5b5b5bFF"),
+    jump_scout_opt = ui.new_checkbox("LUA", "B", "\ac7d667FFJump Scout Optimization\ac7d667FF"),
+--    adaptive_prediction = ui.new_checkbox("LUA", "B", "\ac7d667FFAdaptive Prediction Switch\ac7d667FF"),
+--    dynamic_hit_chance = ui.new_checkbox("LUA", "B", "\ac7d667FFDynamic Hit Chance Adjustment\ac7d667FF \a90909025«\a90909020dont work\a90909025»"),
+--    flick_compensation = ui.new_checkbox("LUA", "B", "\ac7d667FFFlick Compensation\ac7d667FF"),
+--    hit_chance_override = ui.new_slider("LUA", "B", "\ac7d667FFHit Chance Override\ac7d667FF \a90909025«\a90909020dont work\a90909025»", 0, 100, 37, false, "%"),
+    unsafe_crage_air = ui.new_checkbox("LUA", "B", "\ad66767FFUnsafe Chrage in Air\aD3D3D3FF"),
+--    precision_mode = ui.new_checkbox("LUA", "B", "\ad66767FFPrecision\ad66767FF \a90909025«\a90909020dont work\a90909025»"),
+--    persist_mode = ui.new_checkbox("LUA", "B", "\ad66767FFPersist Mode\ad66767FF \a90909025«\a90909020dont work\a90909025»"),
+    experimental_mode_two_1 = ui.new_label("LUA", "B", "\aFF0000FF-- devS --\aFFFFFFFF"),
+    velocity_scale = ui.new_slider("LUA", "B", "\ad66767FFVelocity Scale\ad66767FF", 0, 150, 100, true, "%"),
+    gravity_factor = ui.new_slider("LUA", "B", "\ad66767FFGravity Factor\ad66767FF", 0, 200, 100, true, "%"),
+--    potuznometr = ui.new_slider("LUA", "B", "\aFF0000FFПОТУЖНОМЕТР \aFF0000FF \a90909025«\a90909020dont work\a90909025»", 0, 100, 54, true, "%")
+}
+
+
+ -- local imp_exp_1 = ui.new_label("CONFIG", "Presets", "\a909090FF ---------------- P R E S E T S ----------------")
+local config_menu = {
+    import = ui.new_button("CONFIG", "Presets", "\a909090FF Import Config ", function() end),
+    export = ui.new_button("CONFIG", "Presets", "\a909090FF Export Config ", function() end)
+}
+
+
+
+local ui_clear_resolver_memory = ui.new_button("PLAYERS", "Adjustments", "\a909090FF Clear Resolver Memory ", function()
+
+    resolver_data = {}
+    adaptive_resolver.players = {}
+    adaptive_resolver.miss_memory = {}
+    adaptive_resolver.hit_memory = {}
+    resolver_stats.total_hits = 0
+    resolver_stats.total_misses = 0
+    resolved_target = nil
+    persist_target = nil
+    debug_info = {}
+    hit = {}
+    missed = {}
+    resolver_player_data = setmetatable({}, { __mode = "v" })
+    resolver_stats = {
+        total_hits = 0,
+        total_misses = 0,
+        hits_by_method = {},
+        misses_by_method = {},
+        misses_by_reason = {
+            spread = 0,
+            prediction = 0,
+            lagcomp = 0,
+            defensive_low_delta = 0,
+            defensive_jitter = 0,
+            defensive_spin = 0,
+            defensive_lc_break = 0,
+            defensive_other = 0,
+            resolver = 0,
+            connection = 0,
+            unregister_shot = 0
+        }
+    }
+    resolver_aa_memory = setmetatable({}, { __mode = "kv" })
+    resolver_anim_cache = setmetatable({}, { __mode = "k" })
+    resolver_miss_memory = setmetatable({}, { __mode = "kv" })
+    resolver_last_shot_id = {}
+    resolver_target_player = nil
+
+    -- бля ну это ваще пиздец хахаах
+--[[
+    for _, enemy in ipairs(entity.get_players(true)) do
+        plist.set(enemy, "Force body yaw", false)
+        plist.set(enemy, "Override preferred hitbox", nil)
+    end
+    ]]--
+    client.color_log(0, 255, 0, "[IMMORTAL] All resolver memory and player data cleared successfully")
+end)
+
+local function export_config()
+    local config = {}
+    for key, element in pairs(ui_elements) do
+        config[key] = ui.get(element)
+    end
+    local json_str = json.stringify(config)
+    clipboard.set(json_str)
+    client.color_log(0, 255, 0, "[IMMORTAL] Настройки экспортированы в буфер обмена")
+end
+
+
+local function import_config()
+    local json_str = clipboard.get()
+    if not json_str or json_str == "" then
+        client.color_log(255, 120, 120, "[IMMORTAL] Буфер обмена пуст")
+        return
+    end
+    local status, config = pcall(json.parse, json_str)
+    if not status or type(config) ~= "table" then
+        client.color_log(255, 120, 120, "[IMMORTAL] Ошибка импорта: Неверный формат настроек")
+        return
+    end
+    for key, value in pairs(config) do
+        if ui_elements[key] then
+            local success, err = pcall(ui.set, ui_elements[key], value)
+            if not success then
+                client.color_log(255, 120, 120, "[IMMORTAL] Ошибка при установке " .. key .. ": " .. err)
+            end
+        end
+    end
+    client.color_log(0, 255, 0, "[IMMORTAL] Настройки импортированы из буфера обмена")
+end
+
+
+ui.set_callback(config_menu.import, import_config)
+ui.set_callback(config_menu.export, export_config)
+
+
+local texts = {
+    "say  ",
+    "say  "
+}
+
+
+math.randomseed(math.floor(globals.realtime() * 1000))
+
+
+local random_text = texts[math.random(1, #texts)]
+client.exec(random_text)
+
+
+local texts = {
+    "✞ ALARAKS DEATH FLEET ZERSTORT DEINE WELT ✞", "⚡ IMMORTAL IS A GREATEST RESOLVER ⚡", 
+    "Kiss me 1 m𝘰re time, Utena <3", "Это искусство🌸 [ステッカー] by AlaraK",
+    "ХАХАХАХА аларак недавно угнал инвалидную коляску", "Щя пенить буш", 
+    "Съешь мой конфиг, лох >:D", "Щя пенить буш", "фу бездарь иди купи мой фембой кфг 11",
+    "Бест ресольвер загружаеться", "ты не замечаешь тех, кто реально выделяется [AlaraK]", 
+    " ", " ", " ", " ",
+    "https://discord.gg/44Uv7YKYbk", "(◣_◢) ☨ MEMPHIS GOD IS HERE ☨ (◣_◢)", 
+    "ДОМИНИРУЙ КАК RuFF [SC2]", "UNBELIV PIDORAS", 
+    "(◣_◢) ☨ ez 1 owned by hvh boss with gamesense(alaraK) ☨ (◣_◢)", 
+    "ALARAK TO BÓG HVH, SPIERDALAJ, FRAJER!",
+    "И мы курим этот splash, через суку будто dash", "hardjump??", 
+    "Не нужна команда, я enjoyer solo kills"
+}
+
+local timer, display_time, is_displaying, random_text = 0, 2, false, ""
+local was_menu_open = true
+local menu_closed_once = false
+
+math.randomseed(math.floor(globals.realtime() * 1000))
+random_text = texts[math.random(1, #texts)]
+
+local motion = { base_speed = 6, _list = {} }
+motion.new = function(name, new_value, speed, init)
+    speed = speed or motion.base_speed
+    motion._list[name] = motion._list[name] or (init or 0)
+    motion._list[name] = math.lerp(motion._list[name], new_value, speed)
+    return motion._list[name]
+end
+
+local file_texture = readfile("immortal/IMMORTAL_LAST.png")
+local meowhook, meowhook_s
+
+if file_texture then
+    meowhook = renderer.load_png(file_texture, 1024, 1024)
+    meowhook_s = renderer.load_png(file_texture, 64, 64)
+else
+    client.color_log(255, 0, 0, "Ошибка: файл immortal/IMMORTAL_LAST.png не найден. Поместите имг в папку immortal")
+    return
+end
+
+client.set_event_callback('paint', function()
+    local width, height = client.screen_size()
+
+
+    local is_menu_open = ui.is_menu_open()
+
+
+    if is_menu_open then
+        was_menu_open = true
+
+    elseif was_menu_open and not is_menu_open then
+        was_menu_open = false
+        menu_closed_once = true
+    end
+
+
+    if menu_closed_once then
+        local alpha_value = motion.new("alpha_value", is_displaying and 145 or 0, 6)
+        local text_alpha = motion.new("text_alpha", is_displaying and 255 or 0, 6)
+        local texture_alpha = motion.new("texture_alpha", is_displaying and 255 or 0, 6)
+
+        renderer.rectangle(0, 0, width, height, 0, 0, 0, alpha_value)
+
+        local texture_w, texture_h = 400, 400
+        if meowhook then
+            renderer.texture(meowhook, width / 2 - texture_w / 2, height / 2.1 - texture_h / 2, texture_w, texture_h, 255, 255, 255, texture_alpha, "f")
+        end
+
+        local rw, rh = renderer.measure_text("verdana", random_text)
+        renderer.text(width / 2 - rw / 2, height / 3.18 + texture_h / 2 + 10, 255, 255, 255, text_alpha, 0, 0, random_text)
+
+        if is_displaying and globals.realtime() - timer > display_time then
+            is_displaying = false
+        elseif not is_displaying and timer == 0 then
+            timer, is_displaying = globals.realtime(), true
+        end
+    end
+end)
+
+local tags = {
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ ",
+    "Tal'darim ♱ "
+}
+
+local delay = 0.01 
+
+
+local function graduallyDisplayTag(index)
+    if index <= #tags then
+        client.set_clan_tag(tags[index])  
+        client.delay_call(delay, graduallyDisplayTag, index + 1) 
+    else
+
+        client.delay_call(1, graduallyDisplayTag, 1)
+    end
+end
+
+graduallyDisplayTag(1)
+
+
+local function toggle_console(times, delay)
+    if times > 0 then
+        client.exec("toggleconsole")
+        client.delay_call(delay / 1000, function()
+            toggle_console(times - 1, delay)
+        end)
+    end
+end
+
+client.exec("con_enable 1")
+toggle_console(2, 90)
+
+client.exec("clear")
+--[[
+-- client.color_log(225, 225, 225, "████████╗██████╗░███╗░░░███╗██████╗░██████╗░░██████╗████████╗")
+-- client.color_log(225, 225, 225, "╚══██╔══╝╚════██╗████╗░████║██╔══██╗╚════██╗██╔════╝╚══██╔══╝")
+-- client.color_log(225, 225, 225, "░░░██║░░░░█████╔╝██╔████╔██║██████╔╝░█████╔╝╚█████╗░░░░██║░░░")
+-- client.color_log(225, 225, 225, "░░░██║░░░░╚═══██╗██║╚██╔╝██║██╔═══╝░░╚═══██╗░╚═══██╗░░░██║░░░")
+-- client.color_log(225, 225, 225, "░░░██║░░░██████╔╝██║░╚═╝░██║██║░░░░░██████╔╝██████╔╝░░░██║░░░")
+-- client.color_log(225, 225, 225, "░░░╚═╝░░░╚═════╝░╚═╝░░░░░╚═╝╚═╝░░░░░╚═════╝░╚═════╝░░░░╚═╝░░░")
+
+-- client.color_log(128, 128, 128, "▀▀█▀▀ █▀▀█ ▒█▀▄▀█ ▒█▀▀█ █▀▀█ ▒█▀▀▀█ ▀▀█▀▀ ")
+-- client.color_log(128, 128, 128, "░▒█░░ ░░▀▄ ▒█▒█▒█ ▒█▄▄█ ░░▀▄ ░▀▀▀▄▄ ░▒█░░ ")
+-- client.color_log(128, 128, 128, "░▒█░░ █▄▄█ ▒█░░▒█ ▒█░░░ █▄▄█ ▒█▄▄▄█ ░▒█░░")
+
+ ██▓ ███▄ ▄███▓ ███▄ ▄███▓ ▒█████   ██▀███  ▄▄▄█████▓ ▄▄▄       ██▓    
+▓██▒▓██▒▀█▀ ██▒▓██▒▀█▀ ██▒▒██▒  ██▒▓██ ▒ ██▒▓  ██▒ ▓▒▒████▄    ▓██▒    
+▒██▒▓██    ▓██░▓██    ▓██░▒██░  ██▒▓██ ░▄█ ▒▒ ▓██░ ▒░▒██  ▀█▄  ▒██░    
+░██░▒██    ▒██ ▒██    ▒██ ▒██   ██░▒██▀▀█▄  ░ ▓██▓ ░ ░██▄▄▄▄██ ▒██░    
+░██░▒██▒   ░██▒▒██▒   ░██▒░ ████▓▒░░██▓ ▒██▒  ▒██▒ ░  ▓█   ▓██▒░██████▒
+░▓  ░ ▒░   ░  ░░ ▒░   ░  ░░ ▒░▒░▒░ ░ ▒▓ ░▒▓░  ▒ ░░    ▒▒   ▓▒█░░ ▒░▓  ░
+ ▒ ░░  ░      ░░  ░      ░  ░ ▒ ▒░   ░▒ ░ ▒░    ░      ▒   ▒▒ ░░ ░ ▒  ░
+ ▒ ░░      ░   ░      ░   ░ ░ ░ ▒    ░░   ░   ░        ░   ▒     ░ ░   
+ ░         ░          ░       ░ ░     ░                    ░  ░    ░  ░
+                                                                       
+                                                                
+--client.color_log(128, 128, 128, "    ")
+--client.color_log(225, 225, 225, "           ▄▄▄▄▄▄▄▄▄▄██▄▄▄▄▄▄▄▄▄    ▄      MMPIIMMIIYMM  pdIIb.  `7MMM.     ,MMF'`7MMIIIMq.   pdIIb.   .MIIIbgd MMPIIMMIIYMM ")
+--client.color_log(225, 225, 225, "▄███████████████████████▀▀▀▀▀▀▀██████▀-----P'---MM---`7-(O)--`8b------------------------`MM.-(O)--`8b----------------MM---`7---------------------------------------------")
+--client.color_log(225, 225, 225, "██████▀▀▀ ▄██▀  ▀███                            MM           ,89   M YM   ,M MM    MM   ,M9       ,89.`MMb.          MM      ")
+--client.color_log(225, 225, 225, "▀▀▀▀      ██     ▀██▄                           MM           `8b   M  Mb  M' MM    MMmmdM9        `8b   `YMMNq.      MM     ")
+--client.color_log(225, 225, 225, "                  ▀███▄                         MM          IIYb.  M  YM.P'  MM    MM            IIYb.      `MM      MM  ")
+--client.color_log(225, 225, 225, "                     ▀▀                       .JMML.          88 .JML. `'  .JMML..JMML.            88 PIYbmmdI     .JMML.  ")
+--client.color_log(225, 225, 225, "                                                        (O)  .M'                             (O)  .M'")
+--client.color_log(225, 225, 225, "                                                         bmmmd'                               bmmmd'")
+]]--
+client.color_log(225, 225, 225, " ▄█     ▄▄▄▄███▄▄▄▄      ▄▄▄▄███▄▄▄▄    ▄██████▄     ▄████████     ███        ▄████████  ▄█       ")
+client.color_log(225, 225, 225, "███   ▄██▀▀▀███▀▀▀██▄  ▄██▀▀▀███▀▀▀██▄ ███    ███   ███    ███ ▀█████████▄   ███    ███ ███       ")
+client.color_log(225, 225, 225, "███▌  ███   ███   ███  ███   ███   ███ ███    ███   ███    ███    ▀███▀▀██   ███    ███ ███       ")
+client.color_log(225, 225, 225, "███▌  ███   ███   ███  ███   ███   ███ ███    ███  ▄███▄▄▄▄██▀     ███   ▀   ███    ███ ███       ")
+client.color_log(225, 225, 225, "███▌  ███   ███   ███  ███   ███   ███ ███    ███ ▀▀███▀▀▀▀▀       ███     ▀███████████ ███       ")
+client.color_log(225, 225, 225, "███   ███   ███   ███  ███   ███   ███ ███    ███ ▀███████████     ███       ███    ███ ███       ")
+client.color_log(225, 225, 225, "███   ███   ███   ███  ███   ███   ███ ███    ███   ███    ███     ███       ███    ███ ███▌    ▄ ")
+client.color_log(225, 225, 225, "█▀     ▀█   ███   █▀    ▀█   ███   █▀   ▀██████▀    ███    ███    ▄████▀     ███    █▀  █████▄▄██ ")
+-- ███    ███
+client.color_log(128, 128, 128, "    ")
+client.color_log(225, 225, 225, "--------------------[WELCOME]---------------------")
+client.color_log(128, 128, 128, "    ")
+client.color_log(225, 225, 225, "Welcome to IMMORTAL!")
+client.color_log(225, 225, 225, "In resolver will be some new functions")
+client.color_log(225, 225, 225, "Version - 1.0.0 [RELEASE]")
+client.color_log(128, 128, 128, "   ")
+client.color_log(225, 225, 225, "--------------------[CONTACTS]--------------------")
+client.color_log(128, 128, 128, "   ")
+client.color_log(225, 225, 225, "Discord - neon14827")
+client.color_log(225, 225, 225, "Telegram - Dobrewo")
+client.color_log(128, 128, 128, "   ")
+client.color_log(225, 225, 225, "--------------------[LAST IMPROVES]--------------------")
+client.color_log(128, 128, 128, "   ")
+client.color_log(225, 225, 225, "Improved adaptive prediction, anti-aim correction")
+client.color_log(128, 128, 128, "   ")
+client.color_log(225, 225, 225, "Optimized low/high ping, fakelag compensation")
+client.color_log(128, 128, 128, "   ")
+client.color_log(225, 225, 225, "--------------------[AUTHORIZE]--------------------")
+client.color_log(128, 128, 128, "   ")
+client.color_log(225, 225, 225, "Текущий ключь безопсности: К5β∝ひa#字µ9Y∧文Bг≤シT$∆∮©Zx*国mП-яЭ2†v≠漢∑ц@↓π+⊂йF↑§®L~√∞=∨Д中,u.∩™⊃C;:¶€бN%⊇R&↑ひ - µB@≠∆Lц9⊂R∩йx∞Z∑†字m≥gβ&Nπ国C⊇↓5FДひa¶TЭ~®u∮=в+K§Я∝Y⊃€漢3中Ш%v.∧√;гПµひ")
+client.color_log(128, 128, 128, "   ")  
+client.color_log(225, 225, 225, "Ключь шифрования: *∮я5€Z国x∝µひцT2≠文∑B↓©K∧中a$∆⊂L9§πF.®~⊃∞yДm#†N∩⊇П,βCシv@¶≥R&字+√Э=й;∮u%гh°4i¶∝中 - †uZ⊂9Пгµ∨¶T∞Fv文LЭ&Nπx国§βДR∮C@aひ∑中=~⊇yK∆⊃Yб5€m≠й∧B⊂↓√%漢.≥¶シ©ц+™3字")
+client.color_log(128, 128, 128, "   ")
+-- client.color_log(225, 225, 225, "--------------------[(★‿★)]----------------------")
+-- client.color_log(128, 128, 128, "   ")
+-- client.color_log(128, 128, 128, "   ")
+-- client.color_log(128, 128, 128, "               (╯▽╰ )    ")
+-- client.color_log(128, 128, 128, "   ")
+client.color_log(225, 225, 225, "--------------------[CONSOLE]---------------------")
+client.color_log(128, 128, 128, "   ")
+ui.new_label("LUA", "B", "                                        ")
+
+
+local local_player = entity.get_local_player()
+local player_name = local_player and entity.get_player_name(local_player) or "Tal'darim'4ick"
+ui.new_label("LUA", "B", "Welcome, \a778899FF" .. player_name .. "!!")
+--ui.new_label("LUA", "B", "                                 ")
+
+
+local enemy_data = {}
+
+
+local function detect_jitter(yaws)
+    if #yaws < 6 then return "No" end
+    local direction_changes = 0
+    local max_diff = 0
+    for i = 3, #yaws do
+        local diff1 = yaws[i-1] - yaws[i-2]
+        local diff2 = yaws[i] - yaws[i-1]
+        if diff1 * diff2 < 0 and math.abs(diff2) > 20 then
+            direction_changes = direction_changes + 1
+            max_diff = math.max(max_diff, math.abs(diff2))
+        end
+    end
+    return direction_changes >= 2 and "Yes (" .. math.floor(max_diff) .. "°)" or "No"
+end
+
+local function detect_flick(yaws)
+    if #yaws < 2 then return "No" end
+    for i = 2, #yaws do
+        local diff = math.abs(yaws[i] - yaws[i-1])
+        if diff > 60 then
+            return "Yes (" .. math.floor(diff) .. "°)"
+        end
+    end
+    return "No"
+end
+
+local function detect_static(positions, yaws)
+    if #positions < 30 or #yaws < 30 then return "No" end
+    local start_idx = #positions - 29
+    local min_x, max_x = positions[start_idx].x, positions[start_idx].x
+    local min_y, max_y = positions[start_idx].y, positions[start_idx].y
+    local min_z, max_z = positions[start_idx].z, positions[start_idx].z
+    local min_yaw, max_yaw = yaws[start_idx], yaws[start_idx]
+    for i = start_idx + 1, #positions do
+        min_x = math.min(min_x, positions[i].x)
+        max_x = math.max(max_x, positions[i].x)
+        min_y = math.min(min_y, positions[i].y)
+        max_y = math.max(max_y, positions[i].y)
+        min_z = math.min(min_z, positions[i].z)
+        max_z = math.max(max_z, positions[i].z)
+        min_yaw = math.min(min_yaw, yaws[i])
+        max_yaw = math.max(max_yaw, yaws[i])
+    end
+    local pos_diff = math.max(max_x - min_x, max_y - min_y, max_z - min_z)
+    local yaw_diff = math.abs(max_yaw - min_yaw)
+    return pos_diff < 2.5 and yaw_diff < 2.5 and "Yes" or "No"
+end
+
+local function detect_fakelag(sim_times)
+    if #sim_times < 2 then return "No" end
+    local dt = sim_times[#sim_times] - sim_times[#sim_times - 1]
+    local expected_dt = globals.tickinterval()
+    local choked = math.floor(dt / expected_dt) - 1
+    if choked > 0 then
+        return "Yes (" .. choked .. " ticks)"
+    else
+        return "No"
+    end
+end
+
+local function detect_afk(positions, yaws, velocities)
+    if #positions < 200 or #yaws < 200 or #velocities < 200 then return "No" end
+    local start_idx = #positions - 199
+    local min_x, max_x = positions[start_idx].x, positions[start_idx].x
+    local min_y, max_y = positions[start_idx].y, positions[start_idx].y
+    local min_z, max_z = positions[start_idx].z, positions[start_idx].z
+    local min_yaw, max_yaw = yaws[start_idx], yaws[start_idx]
+    local total_speed = 0
+    for i = start_idx + 1, #positions do
+        min_x = math.min(min_x, positions[i].x)
+        max_x = math.max(max_x, positions[i].x)
+        min_y = math.min(min_y, positions[i].y)
+        max_y = math.max(max_y, positions[i].y)
+        min_z = math.min(min_z, positions[i].z)
+        max_z = math.max(max_z, positions[i].z)
+        min_yaw = math.min(min_yaw, yaws[i])
+        max_yaw = math.max(max_yaw, yaws[i])
+        total_speed = total_speed + velocities[i]
+    end
+    local pos_diff = math.max(max_x - min_x, max_y - min_y, max_z - min_z)
+    local yaw_diff = math.abs(max_yaw - min_yaw)
+    local avg_speed = total_speed / 200
+    return pos_diff < 0.5 and yaw_diff < 0.5 and avg_speed < 1 and "Yes" or "No"
+end
+
+local function update_choke_history(enemy, choke)
+    local data = resolver_data[enemy] or {}
+    data.choke_history = data.choke_history or {}
+    table.insert(data.choke_history, choke)
+    if #data.choke_history > 10 then
+        table.remove(data.choke_history, 1)
+    end
+    resolver_data[enemy] = data
+    return data.choke_history
+end
+
+local function get_adaptive_choke(enemy)
+    local choke_history = update_choke_history(enemy, get_choke(enemy))
+    if #choke_history < 3 then return choke_history[#choke_history] or 0 end
+    local sum = 0
+    for _, v in ipairs(choke_history) do sum = sum + v end
+    local avg_choke = sum / #choke_history
+    local std_dev = calculate_std_dev(choke_history)
+    return math.clamp(avg_choke + std_dev, 0, 17) 
+end
+
+local function update_enemy_data()
+    local enemies = entity.get_players(true)
+    for _, enemy in ipairs(enemies) do
+        if not entity.is_alive(enemy) then
+            enemy_data[enemy] = nil
+            goto continue
+        end
+        local ent = enemy
+        if not enemy_data[ent] then
+            enemy_data[ent] = {
+                positions = {},
+                yaws = {},
+                pitches = {},
+                velocities = {},
+                sim_times = {},
+                sim_time_history = {}
+            }
+        end
+        local data = enemy_data[ent]
+        local x, y, z = entity.get_prop(ent, "m_vecOrigin")
+        if x then
+            table.insert(data.positions, {x = x, y = y, z = z})
+            local pitch, yaw = entity.get_prop(ent, "m_angEyeAngles")
+            table.insert(data.yaws, yaw or 0)
+            table.insert(data.pitches, pitch or 0)
+            local vel_x = entity.get_prop(ent, "m_vecVelocity[0]") or 0
+            local vel_y = entity.get_prop(ent, "m_vecVelocity[1]") or 0
+            local vel_z = entity.get_prop(ent, "m_vecVelocity[2]") or 0
+            local speed = math.sqrt(vel_x^2 + vel_y^2 + vel_z^2)
+            table.insert(data.velocities, speed)
+            local sim_time = entity.get_prop(ent, "m_flSimulationTime") or 0
+            table.insert(data.sim_times, sim_time)
+            table.insert(data.sim_time_history, sim_time)
+            if #data.sim_time_history > 10 then
+                table.remove(data.sim_time_history, 1)
+            end
+            if #data.positions > 200 then
+                table.remove(data.positions, 1)
+                table.remove(data.yaws, 1)
+                table.remove(data.pitches, 1)
+                table.remove(data.velocities, 1)
+                table.remove(data.sim_times, 1)
+            end
+        end
+        ::continue::
+    end
+end
+
+
+
+
+
+--
+client.set_event_callback("player_connect_full", function(e)
+    local ent = client.userid_to_entindex(e.userid)
+    if ent == entity.get_local_player() then
+        enemy_data = {}
+    end
+end)
+
+client.set_event_callback("player_death", function(e)
+    local ent = client.userid_to_entindex(e.userid)
+    if enemy_data[ent] then
+        enemy_data[ent] = nil
+    end
+end)
+
+
+
+
+local smileys = {
+    "•̀ ω •́",
+    "(＠＾０＾)",
+    "＾-＾",
+    "(^_^)",
+    "(*^_^*)",
+    "＾-＾",
+    ";P",
+    "^3^",
+    "(✿◠‿◠)",
+    "(✿◡‿◡)",
+    "（⊙ｏ⊙）",
+    "(‾◡◝)",
+    "(◕‿◕)"
+}
+
+local sad_smileys = {
+    "•̀ ω •́",
+    "(＠＾０＾)",
+    "＾-＾",
+    "(^_^)",
+    "(*^_^*)",
+    "＾-＾",
+    ";P",
+    "^3^",
+    "(✿◠‿◠)",
+    "(✿◡‿◡)",
+    "（⊙ｏ⊙）",
+    "(‾◡◝)",
+    "(◕‿◕)"
+}
+
+
+local function init_random_seed()
+    local success, result = pcall(function() return os.time() end)
+    if success and result then
+        math.randomseed(result)
+    else
+        math.randomseed(client.unix_time()) 
+    end
+end
+init_random_seed()
+
+
+local version_smiley = smileys[math.random(1, #smileys)]
+local coder_smiley = smileys[math.random(1, #smileys)]
+local support_smiley = smileys[math.random(1, #smileys)]
+local tst_smiley = sad_smileys[math.random(1, #sad_smileys)]
+
+
+-- ui.new_label("LUA", "B", "⌚ Sub expiration:\a90EE90FF Never \a90909040" .. version_smiley)
+
+ui.new_label("LUA", "B", "                                        ")
+ui.new_label("LUA", "B", "⚙ Version:\a90EE90FF Release \a90909040" .. coder_smiley)
+ui.new_label("LUA", "B", "                                        ")
+ui.new_label("LUA", "B", "✨ Coder:\aDC143CFF AlaraK \a90909040" .. support_smiley) -- ; \aDC143CFFАгент \a90909040
+ui.new_label("LUA", "B", "                                        ")
+ui.new_label("LUA", "B", "❗ Support:\aDC143CFF C0smo \a90909040" .. tst_smiley)
+
+
+local ui_discord_button = ui.new_button("LUA", "B", "\a909090FF☆꧁✬◦°˚°◦. Discord .◦°˚°◦✬꧂☆\a909090FF", function()
+    client.exec("say https:/discord.gg/44Uv7YKYbk")
+    client.color_log(0, 255, 0, "[IMMORTAL] Join us: https://discord.gg/44Uv7YKYbk!")
+    panorama.loadstring(panorama.open("CSGOHud").SteamOverlayAPI.OpenExternalBrowserURL("https://discord.gg/44Uv7YKYbk"))
+end)
+
+
+local smileys = {
+    "Ютуб2017 - LilSemmi",
+    "HMU - Tobias Dray ",
+    "707 - Ftlframe",
+    "edgy - luvwillow",
+    "OG - LeLxx",
+    "vortex - isq",
+    "DINNER! - femtanyl",
+    "Heaven's Devils  - Animelmack",
+    "40 DAYS - GREEN ORXNGE",
+    "Хаги Ваги - kyz9ka",
+    "JUMPSTYLE PARTY - RomancePlanet",
+    "Австралия - МАЙАМИ",
+    "Terran 2 - DSC",
+    "Jump - Slowed - ecZk",
+    "Культурный кот - Нежное Это",
+    ".50AE - ZWE1HVNDXR",
+    "Smoke out - oppslll",
+    "Failed to connect spotify. Err code: *null*",
+    "Failed to connect spotify. Err code: X41822N",
+    "None"
+}
+
+local function init_random_seed()
+    math.randomseed(client.unix_time())
+end
+init_random_seed()
+
+
+local function set_random_labels()
+    local version_smiley = smileys[math.random(1, #smileys)]
+
+
+    ui.new_label("LUA", "B", "\a90909040♪ Song of the day: " .. version_smiley)
+end
+
+
+set_random_labels()
+
+do
+    local ffi = require("ffi")
+    local vector = require("vector")
+    local pui = require("gamesense/pui")
+    local color = require("gamesense/color")
+    local entity = require("gamesense/entity")
+
+    local screen = {}
+    screen.size = vector(client.screen_size())
+    screen.center = screen.size * 0.5
+
+    local colors = {
+        gamesense = {
+            ["Ping"] = color(151, 237, 142, 255),
+            ["DT"] = color(255, 255, 255, 255),
+            ["FD"] = color(255, 255, 255, 255),
+            ["Fake Lag"] = color(227, 125, 125, 255),
+            ["Safe Point"] = color(255, 255, 255, 255),
+            ["BAim"] = color(255, 255, 255, 255),
+            ["HC Chance"] = color(185, 185, 255, 255),
+            ["MinDMG"] = color(255, 255, 255, 255),
+            ["FS"] = color(255, 255, 255, 255)
+        }
+    }
+
+    local utils = {}
+    utils.lerp = function(start, end_pos, time)
+        if start == end_pos then return end_pos end
+        local frametime = globals.frametime() * (1 / globals.frametime())
+        time = time * frametime
+        local val = start + ((end_pos - start) * time)
+        if math.abs(val - end_pos) < 0.25 then return end_pos end
+        return val
+    end
+
+    local refs2 = {
+        ping = pui.reference("Misc", "Miscellaneous", "Ping spike"),
+        dt = pui.reference("RAGE", "Aimbot", "Double tap"),
+        fd = pui.reference("RAGE", "Other", "Duck peek assist"),
+        safe = pui.reference("RAGE", "Aimbot", "Force safe point"),
+        baim = pui.reference("RAGE", "Aimbot", "Force body aim"),
+        hc = pui.reference("RAGE", "Aimbot", "Minimum hit chance"),
+        dmg = pui.reference("RAGE", "Aimbot", "Minimum damage"),
+        mdmg = pui.reference("RAGE", "Aimbot", "Minimum damage Override"),
+        mdmg2 = select(2, pui.reference("RAGE", "Aimbot", "Minimum damage Override")),
+        thirdperson = pui.reference("VISUALS", "Effects", "Force third person (alive)")
+    }
+
+    local hotkeys = {
+        fs = pui.reference("AA", "Anti-aimbot angles", "Freestanding"),
+        edge_yaw = pui.reference("AA", "Anti-aimbot angles", "Edge yaw"),
+        fd = pui.reference("RAGE", "Other", "Duck peek assist"),
+        osaa = pui.reference("AA", "Other", "On shot anti-aim"),
+        slow = pui.reference("AA", "Other", "Slow motion"),
+        fake_peek = pui.reference("AA", "Other", "Fake peek"),
+        min_dmg = pui.reference("RAGE", "Aimbot", "Minimum damage Override"),
+    }
+
+    local lp = {
+        entity = entity.get_local_player(),
+        exploit = nil
+    }
+
+    local gamesense_menu = pui.group("CONFIG", "LUA")
+    local gamesense_enabled = gamesense_menu:checkbox("\a778899FF \aD3D3D3FFEnable \a778899FFCustom Indicators \a90909025", nil, true)
+    local gamesense_follow = gamesense_menu:checkbox("\a778899FF \aD3D3D3FFEnable \a778899FFThird person \a90909025", nil, false)
+
+    local dependencies1 = {    
+
+    {menu =  gamesense_follow, depend = {{gamesense_enabled, true}}},
+
+}
+
+
+
+
+
+for _, dep in ipairs(dependencies1) do
+    pui.traverse(dep.menu, function(ref, path)
+        ref:depend(unpack(dep.depend))
+    end)
+end
+
+    local xy = {}
+    for i = 1, 9 do
+        xy[i] = {35, screen.size.y * 0.759}
+    end
+
+    local function disable_default_hotkeys(enabled)
+        for _, hotkey in pairs(hotkeys) do
+            hotkey:set_hotkey(enabled and nil or hotkey:get_hotkey())
+        end
+    end
+
+    gamesense_enabled:set_callback(function(self)
+        disable_default_hotkeys(self:get())
+    end)
+
+    disable_default_hotkeys(gamesense_enabled:get())
+
+    local function render_gamesense_indicators()
+        if not gamesense_enabled:get() then
+            return
+        end
+
+        client.set_event_callback("indicator", function()
+            return {}
+        end)
+
+        if not lp.entity or not entity.is_alive(lp.entity) then
+            return
+        end
+
+        lp.exploit = refs2.dt:get() and refs2.dt:get_hotkey() and "dt" or refs2.fd:get() and refs2.fd:get_hotkey() and "fd" or refs2.ping:get() and refs2.ping:get_hotkey() and "osaa" or nil
+
+        local elements = {
+            {"Ping", refs2.ping:get() and refs2.ping:get_hotkey()},
+            {"DT", lp.exploit == "dt"},
+            {"FD", lp.exploit == "fd"},
+            {"Fake Lag", lp.exploit == "osaa"},
+            {"Safe Point", refs2.safe:get()},
+            {"BAim", refs2.baim:get()},
+            {"HC Chance", true, ": " .. refs2.hc:get()},
+            {"MinDMG", refs2.mdmg:get() and refs2.mdmg:get_hotkey(), ": " .. (refs2.mdmg:get() and refs2.mdmg2:get() or refs2.dmg:get())},
+            {"FS", hotkeys.fs:get() and hotkeys.fs:get_hotkey()}
+        }
+
+        local stomach_x, stomach_y, stomach_z = entity.hitbox_position(lp.entity, 3)
+        local xx, yy = renderer.world_to_screen(stomach_x, stomach_y, stomach_z)
+
+        local y_add = 0
+        for i, t in pairs(elements) do
+            if t[2] then
+                local c = colors.gamesense[t[1]]
+                local text = t[1] .. (t[3] or "")
+                local measure = vector(renderer.measure_text("+d", text))
+                local x1 = 29 + (measure.x / 2)
+                local y1 = (screen.size.y * 0.654) - y_add - 2
+
+                if gamesense_follow:get() and refs2.thirdperson:get() and refs2.thirdperson:get_hotkey() and xx and yy then
+                    xy[i][1] = utils.lerp(xy[i][1], xx - 250, 0.03)
+                    xy[i][2] = utils.lerp(xy[i][2], (yy - y_add) - 2, 0.03)
+                else
+                    xy[i][1] = utils.lerp(xy[i][1], x1, 0.3)
+                    xy[i][2] = utils.lerp(xy[i][2], y1, 0.3)
+                end
+
+                renderer.gradient(xy[i][1], xy[i][2], x1, measure.y + 4, 0, 0, 0, 25, 0, 0, 0, 0, true)
+                renderer.gradient(xy[i][1], xy[i][2], -x1, measure.y + 4, 0, 0, 0, 25, 0, 0, 0, 0, true)
+                renderer.text(xy[i][1] - (measure.x / 2), xy[i][2] + 2, c.r, c.g, c.b, c.a, "+d", 0, text)
+
+                y_add = y_add + (measure.y * 1.42)
+            end
+        end
+    end
+
+    client.set_event_callback("paint", render_gamesense_indicators)
+end
+
+
+local function hsv_to_rgb(h, s, v)
+    local r, g, b
+
+    local i = math.floor(h * 6)
+    local f = h * 6 - i
+    local p = v * (1 - s)
+    local q = v * (1 - f * s)
+    local t = v * (1 - (1 - f) * s)
+
+    i = i % 6
+
+    if i == 0 then r, g, b = v, t, p
+    elseif i == 1 then r, g, b = q, v, p
+    elseif i == 2 then r, g, b = p, v, t
+    elseif i == 3 then r, g, b = p, q, v
+    elseif i == 4 then r, g, b = t, p, v
+    elseif i == 5 then r, g, b = v, p, q
+    end
+
+    return math.floor(r * 255), math.floor(g * 255), math.floor(b * 255)
+end
+
+
+local my_label = ui.new_label("CONFIG", "Presets", "Last update: ??.??.??")
+
+local speed = 1 
+local color1 = {255, 0, 255}
+local color2 = {0, 128, 255} 
+
+
+local function lerp(a, b, t)
+    return a + (b - a) * t
+end
+
+
+local function getGradientColor(x, width)
+    local time = globals.realtime() * speed
+    local offset = (time % 2) / 2  -- 0 to 1 цикл
+    local pos = (x / width + offset) % 1
+
+    local r = lerp(color1[1], color2[1], pos)
+    local g = lerp(color1[2], color2[2], pos)
+    local b = lerp(color1[3], color2[3], pos)
+
+    return math.floor(r), math.floor(g), math.floor(b)
+end
+
+
+client.set_event_callback("paint_ui", function()
+    local text = " Last update: 08.07.25"
+    local prefix = "\aD3D3D399 Last Update: " 
+    local gradient_part = "08.07.25"
+    local width = 8
+    local final_text = prefix
+    local gradient_count = 0 
+
+    for i = 1, #gradient_part do
+        local char = gradient_part:sub(i, i) == " " and "\x20" or gradient_part:sub(i, i)
+        if char:match("[%d%.]") then
+           
+            gradient_count = gradient_count + 1
+            local r, g, b = getGradientColor(gradient_count, width)
+            final_text = final_text .. string.format("\a%02X%02X%02XFF%s", r, g, b, char)
+        end
+    end
+
+    ui.set(my_label, final_text)
+end)
+
+local start_time = client.unix_time()
+
+
+local function get_elapsed_time()
+    local elapsed_seconds = client.unix_time() - start_time
+    local hours = math.floor(elapsed_seconds / 3600)
+    local minutes = math.floor((elapsed_seconds - hours * 3600) / 60)
+    local seconds = math.floor(elapsed_seconds - hours * 3600 - minutes * 60)
+    return string.format("%02d:%02d:%02d", hours, minutes, seconds)
+end
+
+
+local speed = 1  
+local color1 = {255, 0, 255}  -- я
+local color2 = {0, 128, 255}
+
+
+local function lerp(a, b, t)
+    return a + (b - a) * t
+end
+
+
+local function getGradientColor(x, width)
+    local time = globals.realtime() * speed
+    local offset = (time % 2) / 2  
+    local pos = (x / width + offset) % 1
+    local r = lerp(color1[1], color2[1], pos)
+    local g = lerp(color1[2], color2[2], pos)
+    local b = lerp(color1[3], color2[3], pos)
+    return math.floor(r), math.floor(g), math.floor(b)
+end
+
+
+local tab, container = "CONFIG", "Presets"
+local session_label = ui.new_label(tab, container, "Your Session Time: 00:00:00")
+
+
+client.set_event_callback("paint_ui", function()
+    if not ui.is_menu_open() then
+        ui.set(session_label, "Your Session Time: 00:00:00")
+        return
+    end
+
+    local time_text = get_elapsed_time()
+    local prefix = "\aD3D3D399 Your Session Time: "
+    local width = #time_text
+    local final_text = prefix
+
+    for i = 1, width do
+        local char = time_text:sub(i, i) == " " and "\x20" or time_text:sub(i, i)
+        local r, g, b = getGradientColor(i, width)
+        final_text = final_text .. string.format("\a%02X%02X%02XFF%s", r, g, b, char)
+    end
+
+    ui.set(session_label, final_text)
+end)
+
+local inv_label = ui.new_label("LUA", "B", "   ")
+
+
+
+local function table_contains(tab, val)
+    if type(tab) ~= "table" then return false end
+    for _, value in ipairs(tab) do
+        if value == val then return true end
+    end
+    return false
+end
+
+
+local utils = {} -- 💀💀
+utils.lerp = function(start, end_pos, time, ampl)
+    if (start == end_pos) then return end_pos end
+    ampl = ampl or (1 / globals.frametime())
+    local frametime = globals.frametime() * ampl
+    time = time * frametime
+    local val = start + ((end_pos - start) * time)
+    if (math.abs(val - end_pos) < 0.25) then return end_pos end
+    return val
+end
+
+utils.to_hex = function(color, cut)
+    return string.format("%02X%02X%02X" .. ((cut and "") or "%02X"), color.r, color.g, color.b, color.a or 255)
+end
+
+utils.sine_yaw = function(tick, min, max)
+    local amplitude = (max - min) / 2
+    local center = (max + min) / 20
+    return center + (amplitude * math.sin(tick * 0.05))
+end
+
+utils.rectangle = function(x, y, w, h, r, g, b, a, radius)
+    radius = math.min(radius, w / 2, h / 2)
+    local radius_2 = radius * 2
+    renderer.rectangle(x + radius, y, w - radius_2, h, r, g, b, a)
+    renderer.rectangle(x, y + radius, radius, h - radius_2, r, g, b, a)
+    renderer.rectangle((x + w) - radius, y + radius, radius, h - radius_2, r, g, b, a)
+    renderer.circle(x + radius, y + radius, r, g, b, a, radius, 180, 0.25)
+    renderer.circle(x + radius, (y + h) - radius, r, g, b, a, radius, 270, 0.25)
+    renderer.circle((x + w) - radius, y + radius, r, g, b, a, radius, 90, 0.25)
+    renderer.circle((x + w) - radius, (y + h) - radius, r, g, b, a, radius, 0, 0.25)
+end
+
+
+local screen = {}
+screen.size = vector(client.screen_size())
+screen.center = vector(client.screen_size()) * 0.5
+
+
+local watermark = {}
+watermark.position = vector(screen.center.x - 150, screen.size.y - 30)
+watermark.size = vector(300, 20)
+watermark.alpha = 0
+watermark.custom_name = "IMMORTAL"
+watermark.elements = {"Nickname", "FPS", "Ping", "Time"}
+watermark.lock = "Bottom-Center"
+watermark.candy = true
+
+local colors = {}
+colors.watermark = {
+    Text = color(160, 120, 220, 185), --  фиол
+    Background = color(0, 0, 0, 77) -- 30%
+}
+
+
+local gradient = {}
+gradient.animated_gradient_text = function(text, colors, speed, a)
+    local output = ""
+    local length = #text
+    local time_offset = (utils.sine_yaw(globals.realtime() * speed, 5, 20) * speed) % 1
+    for i = 1, length do
+        local t = (((i - 1) / (length - 1)) + time_offset) % 1
+        local color = color.linear_gradient(colors, t)
+        color:alpha_modulate(utils.sine_yaw(((globals.framecount() / i) % 3) * (0.92 - (i % 5)), 100, 255))
+        output = output .. string.format("\a%02x%02x%02x%02x", color.r, color.g, color.b, color.a * a) .. text:sub(i, i)
+    end
+    return output
+end
+gradient.table = {
+    {color(244, 244, 244, 255), 0},
+    {color(115, 115, 115, 255), 0.5},
+    {color(233, 233, 233, 255), 1} 
+}
+
+
+local smoothed_fps = 0
+
+
+local function render_watermark()
+    local target_alpha = ui.get(ui_new_logs_enable) and 0 or 1
+    watermark.alpha = utils.lerp(watermark.alpha, target_alpha, 0.03)
+
+    if watermark.alpha <= 0.1 then return end
+
+    local player_name = entity.get_player_name(entity.get_local_player()) or "Unknown"
+    local current_fps = math.floor(1 / globals.frametime())
+    smoothed_fps = utils.lerp(smoothed_fps, current_fps, 0.1)
+    local ping = math.floor(entity.get_prop(entity.get_local_player(), "m_iPing") or 0)
+    local time_seconds = math.floor(globals.realtime()) % (24 * 3600)
+    local hours = math.floor(time_seconds / 3600)
+    local minutes = math.floor((time_seconds % 3600) / 60)
+    local time_str = string.format("%02d:%02d", hours, minutes)
+
+    local text = ""
+    if watermark.elements[1] then text = text .. (watermark.custom_name ~= "" and watermark.custom_name or player_name) .. " | " end
+    if watermark.elements[2] then text = text .. math.floor(smoothed_fps) .. " FPS | " end
+    if watermark.elements[3] then text = text .. ping .. "ms | " end
+    if watermark.elements[4] then text = text .. "Release" end
+    text = text:gsub(" | $", "")
+
+    local measure = vector(renderer.measure_text("d", text))
+    local x, y
+    if watermark.lock == "Bottom-Center" then
+        x = screen.center.x - (measure.x / 2)
+        y = screen.size.y - watermark.size.y - 10
+    else
+        x = watermark.position.x
+        y = watermark.position.y
+    end
+
+
+    local bg_color = colors.watermark.Background:alpha_modulate(watermark.alpha * 180)
+    utils.rectangle(x - 5, y - 2, measure.x + 10, watermark.size.y + 4, bg_color.r, bg_color.g, bg_color.b, bg_color.a, 5)
+
+
+    local text_color = colors.watermark.Text:alpha_modulate(watermark.alpha * 255)
+    if watermark.candy then
+        text = gradient.animated_gradient_text(text, gradient.table, 1.5, watermark.alpha)
+    else
+        text = string.format("\a%02x%02x%02x%02x%s", text_color.r, text_color.g, text_color.b, text_color.a * watermark.alpha, text)
+    end
+    renderer.text(x, y + (watermark.size.y / 2) - (measure.y / 2), 0, 0, 0, 0, "d", 0, text)
+end
+
+client.set_event_callback("paint", render_watermark)
+--[[
+local ffi = require('ffi')
+local pui = require('gamesense/pui')
+local surface = require('gamesense/surface')
+
+local a = function (...) return ... end
+
+local surface_create_font = surface.create_font
+local verdana = surface_create_font('Verdana', 12, 400, {})
+
+
+
+
+local A_1 = {
+    A_2 = panorama.open("CSGOHud").MyPersonaAPI.GetName(),
+    A_3 = "DEBUG",
+}
+
+
+local color do
+    local helpers = {
+        RGBtoHEX = a(function (col, short)
+            return string.format(short and "%02X%02X%02X" or "%02X%02X%02X%02X", col.r, col.g, col.b, col.a)
+        end),
+        HEXtoRGB = a(function (hex)
+            hex = string.gsub(hex, "^#", "")
+            return tonumber(string.sub(hex, 1, 2), 16), tonumber(string.sub(hex, 3, 4), 16), tonumber(string.sub(hex, 5, 6), 16), tonumber(string.sub(hex, 7, 8), 16) or 255
+        end)
+    }
+
+    local create
+    local mt = {
+        __eq = a(function (a, b)
+            return a.r == b.r and a.g == b.g and a.b == b.b and a.a == b.a
+        end),
+        lerp = a(function (f, t, w)
+            return create(f.r + (t.r - f.r) * w, f.g + (t.g - f.g) * w, f.b + (t.b - f.b) * w, f.a + (t.a - f.a) * w)
+        end),
+        to_hex = helpers.RGBtoHEX,
+        alphen = a(function (self, a, r)
+            return create(self.r, self.g, self.b, r and a * self.a or a)
+        end),
+    } mt.__index = mt
+
+    create = ffi.metatype(ffi.typeof("struct { uint8_t r; uint8_t g; uint8_t b; uint8_t a; }"), mt)
+
+    color = setmetatable({
+        rgb = a(function (r, g, b, a)
+            r = math.min(r or 255, 255)
+            return create(r, g and math.min(g, 255) or r, b and math.min(b, 255) or r, a and math.min(a, 255) or 255)
+        end),
+        hex = a(function (hex)
+            local r, g, b, a = helpers.HEXtoRGB(hex)
+            return create(r, g, b, a)
+        end)
+    }, {
+        __call = a(function (self, r, g, b, a)
+            return type(r) == "string" and self.hex(r) or self.rgb(r, g, b, a)
+        end),
+    })
+end
+
+local colors = {
+    text = color.rgb(230), 
+    panel = {
+        l1 = color.rgb(30, 30, 30, 180), 
+    }
+}
+
+
+local DPI, _DPI = 1, {}
+local sw, sh = client.screen_size()
+local asw, ash = sw, sh
+local sc = {x = sw * .5, y = sh * .5}
+local asc = {x = asw * .5, y = ash * .5}
+
+
+local render do
+    local alpha = 1
+    local astack = {}
+    local measurements = setmetatable({}, { __mode = "kv" })
+    local dpi_flag = ""
+    local dpi_ref = ui.reference("MISC", "Settings", "DPI scale")
+    local blurs = setmetatable({}, {__mode = "kv"})
+
+    _DPI.scalable = false
+    _DPI.callback = function ()
+        local old = DPI
+        DPI = _DPI.scalable and tonumber(ui.get(dpi_ref):sub(1, -2)) * .01 or 1
+        sw, sh = client.screen_size()
+        sw, sh = sw / DPI, sh / DPI
+        sc.x, sc.y = sw * .5, sh * .5
+        dpi_flag = DPI ~= 1 and "d" or ""
+    end
+    _DPI.callback()
+    ui.set_callback(dpi_ref, _DPI.callback)
+
+    local function check_screen()
+        if sw == 0 or sh == 0 then
+            _DPI.callback()
+            asw, ash = client.screen_size()
+            sw, sh = client.screen_size()
+        else
+            client.unset_event_callback("paint_ui", check_screen)
+        end
+    end
+    client.set_event_callback("paint_ui", check_screen)
+
+    client.set_event_callback("paint", function ()
+        for i = 1, #blurs do
+            local v = blurs[i]
+            if v then renderer.blur(v[1], v[2], v[3], v[4]) end
+        end
+        table.clear(blurs)
+    end)
+    client.set_event_callback("paint_ui", function ()
+        table.clear(blurs)
+    end)
+
+    local F = math.floor
+
+    render = setmetatable({
+        push_alpha = a(function (v)
+            local len = #astack
+            astack[len+1] = v
+            alpha = alpha * astack[len+1] * (astack[len] or 1)
+            if len > 255 then error "alpha stack exceeded 255 objects" end
+        end),
+        pop_alpha = a(function ()
+            local len = #astack
+            astack[len], len = nil, len-1
+            alpha = len == 0 and 1 or astack[len] * (astack[len-1] or 1)
+        end),
+        get_alpha = a(function () return alpha end),
+
+        blur = a(function (x, y, w, h, a)
+            if (a or 1) * alpha > .25 then
+                blurs[#blurs+1] = {F(x * DPI), F(y * DPI), F(w * DPI), F(h * DPI)}
+            end
+        end),
+        rectangle = a(function (x, y, w, h, c, n)
+            x, y, w, h, n = F(x * DPI), F(y * DPI), F(w * DPI), F(h * DPI), n and F(n * DPI) or 0
+            local r, g, b, a = c.r, c.g, c.b, c.a * alpha
+            if n == 0 then
+                renderer.rectangle(x, y, w, h, r, g, b, a)
+            else
+                renderer.circle(x + n, y + n, r, g, b, a, n, 180, 0.25)
+                renderer.rectangle(x + n, y, w - n - n, n, r, g, b, a)
+                renderer.circle(x + w - n, y + n, r, g, b, a, n, 90, 0.25)
+                renderer.rectangle(x, y + n, w, h - n - n, r, g, b, a)
+                renderer.circle(x + n, y + h - n, r, g, b, a, n, 270, 0.25)
+                renderer.rectangle(x + n, y + h - n, w - n - n, n, r, g, b, a)
+                renderer.circle(x + w - n, y + h - n, r, g, b, a, n, 0, 0.25)
+            end
+        end),
+        text = a(function (x, y, c, flags, width, ...)
+            renderer.text(x * DPI, y * DPI, c.r, c.g, c.b, c.a * alpha, (flags or "") .. dpi_flag, width or 0, ...)
+        end),
+        measure_text = a(function (flags, text)
+            if not text or text == "" then return 0, 0 end
+            text = text:gsub("\a%x%x%x%x%x%x%x%x", "")
+            flags = flags or ""
+            local key = string.format("<%s>%s", flags, text)
+            if not measurements[key] or measurements[key][1] == 0 then
+                measurements[key] = { renderer.measure_text(flags, text) }
+            end
+            return measurements[key][1], measurements[key][2]
+        end),
+    }, {__index = renderer})
+end
+
+
+local anima do
+    local animators = setmetatable({}, {__mode = "kv"})
+    local frametime, g_speed = globals.absoluteframetime(), 1
+
+    math.clamp = function (x, a, b) if a > x then return a elseif b < x then return b else return x end end
+
+    anima = {
+        pulse = 0,
+        easings = {
+            pow = {
+                function (x, p) return 1 - ((1 - x) ^ (p or 3)) end,
+                function (x, p) return x ^ (p or 3) end,
+                function (x, p) return x < 0.5 and 4 * math.pow(x, p or 3) or 1 - math.pow(-2 * x + 2, p or 3) * 0.5 end,
+            }
+        },
+        lerp = a(function (a, b, s, t)
+            local c = a + (b - a) * frametime * (s or 8) * g_speed
+            return math.abs(b - c) < (t or .005) and b or c
+        end),
+        condition = a(function (id, c, s, e)
+            local ctx = id[1] and id or animators[id]
+            if not ctx then animators[id] = { c and 1 or 0, c }; ctx = animators[id] end
+            s = s or 4
+            local cur_s = type(s) == "table" and (c and s[1] or s[2]) or s
+            ctx[1] = math.clamp(ctx[1] + (frametime * math.abs(cur_s) * g_speed * (c and 1 or -1)), 0, 1)
+            return (ctx[1] % 1 == 0 or cur_s < 0) and ctx[1] or
+                anima.easings.pow[e and (c and e[1][1] or e[2][1]) or (c and 1 or 3)](ctx[1], e and (c and e[1][2] or e[2][2]) or 3)
+        end)
+    }
+
+    client.set_event_callback("paint_ui", function ()
+        anima.pulse = math.abs(globals.realtime() * 1 % 2 - 1)
+        frametime = globals.absoluteframetime()
+    end)
+end
+
+
+local hud = {}
+hud.watermark = {
+    x = sw - 120, y = 24, w = 160, h = 24,
+    alpha = 0, offset_x = 20, progress = {0}, offset_progress = {0},
+    items = {
+        {
+            0, function (self, x, y)
+                local cname = A_1.A_2
+                local t = string.format(A_1.A_3 == "DEBUG" and "%s" or "%s %s%02x— %s",
+                    cname ~= "" and cname or A_1.A_2, "\aFFFFFF", render.get_alpha() * self[1] * 255, A_1.A_3)
+                local tw, th = render.measure_text("", t)
+                if self[1] > 0 then
+                    render.blur(x, y + 1, tw + 16, 22, 1)
+                    render.rectangle(x, y + 1, tw + 16, 22, colors.panel.l1, 4)
+                    render.text(x + 8, y + 6, colors.text, nil, nil, t)
+                end
+                return true, tw + 16
+            end, {}
+        },
+        {
+            0, function (self, x, y)
+                local hours, minutes = client.system_time()
+                local text = string.format("%02d:%02d", hours, minutes)
+                local tw, th = render.measure_text("", text)
+                if self[1] > 0 then
+                    render.blur(x, y + 1, tw + 16, 22, 1)
+                    render.rectangle(x, y + 1, tw + 16, 22, colors.panel.l1, 4)
+                    render.text(x + 8, y + 6, colors.text, nil, nil, text)
+                end
+                return true, tw + 16
+            end, {}
+        },
+    },
+    enumerate = function (self)
+        local total = 0
+        for i, v in ipairs(self.items) do
+            render.push_alpha(v[1])
+            local state, length = v[2](v, self.x + total + self.offset_x, self.y)
+            render.pop_alpha()
+            v[1] = anima.condition(v[3], state, 2, {{1, 3}, {3, 3}})
+            total = total + (length + 2) * v[1]
+        end
+        self.w = anima.lerp(self.w, total, 10, .5)
+    end,
+    update = function (self)
+        self.alpha = anima.condition(self.progress, true, 2, {{1, 3}, {3, 3}})
+        self.offset_x = anima.lerp(self.offset_x, 0, 10, .01)
+        return self.alpha
+    end,
+    paint = function (self)
+        render.push_alpha(self.alpha)
+        self:enumerate()
+        render.pop_alpha()
+    end
+}
+
+
+client.set_event_callback("paint_ui", function ()
+    hud.watermark:update()
+    hud.watermark:paint()
+end)
+]]--
+
+local default_elements = {
+    ui_elements.prediction_factor,
+    ui_elements.fast_mode,
+    ui_elements.trashtalk_enabled,
+    ui_elements.smart_head_aim,
+    ui_elements.smart_head_hp_threshold,
+}
+
+local aggressive_elements = {
+    ui_elements.prediction_factor,
+    ui_elements.fast_mode,
+    ui_elements.headshot_priority,
+    ui_elements.head_height_adjust,
+    ui_elements.flick_prediction_boost,
+--    ui_elements.confidence_threshold,
+    ui_elements.enhanced_defensive_fix,
+--    ui_elements.low_confidence_delay,
+    ui_elements.resolver_correction,
+    ui_elements.resolver_correction_intensity,
+    ui_elements.mode_select,
+}
+
+local adaptive_elements = {
+    ui_elements.tst_prediction_factor,
+    ui_elements.prediction_factor,
+    ui_elements.fast_mode,
+    ui_elements.flick_prediction_boost,
+    ui_elements.resolver_correction_intensity,
+    ui_elements.mode_select,
+}
+
+local dependencies = {
+    [ui_elements.resolver_correction] = {
+        ui_elements.resolver_correction_intensity,
+        ui_elements.mode_select,
+    },
+    [ui_elements.tst_prediction_factor] = { ui_elements.prediction_factor },
+    [ui_elements.manual_predict] = {
+        ui_elements.manual_states,
+        ui_elements.predict_standing,
+        ui_elements.predict_crouching,
+        ui_elements.predict_air,
+        ui_elements.predict_walking,
+        ui_elements.predict_slowwalk,
+    },
+    [ui_elements.dormant_aimbot] = { ui_elements.dormant_min_damage },
+    [ui_elements.desync_detection] = { ui_elements.desync_range },
+    [ui_elements.headshot_priority] = { ui_elements.head_height_adjust },
+    [ui_elements.smart_body_aim] = {
+        ui_elements.smart_body_hp_threshold,
+        ui_elements.smart_body_lethal,
+    },
+    [ui_elements.smart_head_aim] = { ui_elements.smart_head_hp_threshold },
+    [ui_elements.a_brute] = { ui_elements.brute_duration },
+--[[
+    [ui_elements.flick_detection] = {
+        ui_elements.flick_velocity_threshold,
+        ui_elements.flick_reaction_time,
+        ui_elements.flick_prediction_boost,
+        ui_elements.flick_yaw_correction,
+        ui_elements.flick_mode,
+    }, 
+]]
+}
+
+
+local function update_ui_visibility()
+    local is_enabled = ui.get(ui_resolver_enabled)
+    local mode = ui.get(ui_mode_select)
+    local show_settings = ui.get(ui_show_settings)
+
+
+    for _, element in pairs(ui_elements) do
+        if element then
+            ui.set_visible(element, false)
+        end
+    end
+
+
+    for checkbox, elements in pairs(dependencies) do
+        for _, element in ipairs(elements) do
+            if element then
+                ui.set_visible(element, false)
+            end
+        end
+    end
+
+
+    ui.set_visible(label_original, not is_enabled)
+    ui.set_visible(label_enabled_default, is_enabled and mode == "Default")
+    ui.set_visible(label_enabled_custom, is_enabled and mode == "Custom")
+    -- ui.set_visible(label_enabled_aggressive, is_enabled and mode == "Aggressive")
+    -- ui.set_visible(label_enabled_adaptive, is_enabled and mode == "Adaptive")
+
+
+    ui.set_visible(ui_resolver_enabled, true)
+    ui.set_visible(ui_mode_select, true)
+    ui.set_visible(ui_show_settings, is_enabled and mode ~= "Custom")
+
+    if is_enabled then
+        if mode == "Default" then
+
+            ui.set(ui_elements.prediction_factor, 108)
+            ui.set(ui_elements.smart_head_hp_threshold, 25)
+            ui.set(ui_elements.ui_smart_yaw_correction, true)
+            ui.set(ui_elements.desync_detection, true)
+            ui.set(ui_elements.enhanced_defensive_fix, true)
+            
+--            ui.set(ui_elements.confidence_threshold, 10)
+--            ui.set(ui_elements.low_confidence_delay, 5)
+
+
+
+            if show_settings then
+                for _, element in ipairs(default_elements) do
+                    ui.set_visible(element, true)
+                end
+            end
+
+
+          
+
+        elseif mode == "Custom" then
+
+            for _, element in pairs(ui_elements) do
+                if element and element ~= ui_elements.t3mp3st_mode and element ~= ui_elements.experimental_mode then
+                    ui.set_visible(element, true)
+                end
+            end
+
+--            ui.set_visible(ui_elements.confidence_threshold, true)
+--            ui.set_visible(ui_elements.low_confidence_delay_label, true)
+--            ui.set_visible(ui_elements.low_confidence_delay, true)
+
+
+            for checkbox, dep_elements in pairs(dependencies) do
+                local checkbox_enabled = ui.get(checkbox)
+                for _, dep_element in ipairs(dep_elements) do
+                    if dep_element then
+                        ui.set_visible(dep_element, checkbox_enabled)
+                    end
+                end
+            end
+        end
+    end
+end
+
+
+ui.set_callback(ui_resolver_enabled, update_ui_visibility)
+ui.set_callback(ui_mode_select, update_ui_visibility)
+ui.set_callback(ui_show_settings, update_ui_visibility)
+
+for checkbox, elements in pairs(dependencies) do
+    ui.set_callback(checkbox, function()
+        if ui.get(ui_mode_select) == "Custom" then
+            local is_enabled = ui.get(checkbox)
+            for _, element in ipairs(elements) do
+                if element then
+                    ui.set_visible(element, is_enabled)
+                end
+            end
+        end
+    end)
+end
+
+
+client.delay_call(0.1, update_ui_visibility)
+
+
+client.set_event_callback("paint", function()
+    local is_resolver_enabled = ui.get(ui_resolver_enabled)
+    local drawhud = client.get_cvar("cl_drawhud") == "1"
+
+
+    if is_resolver_enabled then
+        renderer.indicator(255, 255, 255, 255, "⚡ IMMORTAL ⚡")
+    end
+end)
+
+
+
+
+local function get_bullet_speed(weapon_id) return 2500 end
+local function get_weapon_damage(weapon_id) return 30 end
+local function lerp(a, b, t) return a + (b - a) * t end
+local function get_player_state(enemy)
+    local vz = entity.get_prop(enemy, "m_vecVelocity[2]") or 0
+    local speed = math.sqrt((entity.get_prop(enemy, "m_vecVelocity[0]") or 0)^2 + (entity.get_prop(enemy, "m_vecVelocity[1]") or 0)^2)
+    if vz ~= 0 then return "in_air" end
+    if speed < 10 then return "standing" end
+    if speed < 50 then return "slow_walk" end
+    return "walking"
+end
+local function detect_jitter_pattern(history) return #history > 2 and math_util.angle_diff(history[#history-1], history[#history]) > 40 end
+local function detect_desync_pattern(history) return 0 end
+local function get_lower_body_yaw(enemy) return entity.get_prop(enemy, "m_flLowerBodyYawTarget") or 0 end
+local function get_real_yaw_from_animations(enemy) return entity.get_prop(enemy, "m_angEyeAngles[1]") or 0 end
+local function get_animation_state(enemy) return "standing" end
+local function detect_fakelag(enemy) return false end
+local function trace_to_lby(enemy, lby) return false end
+local function should_use_lby(enemy, lby, eye_yaw, state, last_update) return false end
+local function is_shooting(enemy) return false end
+local function is_player_jumping(enemy) return (entity.get_prop(enemy, "m_vecVelocity[2]") or 0) ~= 0 end
+local function std_dev(t) return 0 end
+local function enhanced_defensive_fix(enemy, yaw) return yaw end
+local function flick_compensation(enemy, yaw) return yaw end
+local function compensate_spread(weapon_id, state, x, y, z, distance) return x, y, z end
+local function is_fast_firing_weapon(weapon_id) return false end
+
+
+local function update_enemy_data_fix(enemy)
+    resolver_data[enemy] = resolver_data[enemy] or {
+        yaw_history = {},
+        lby_history = {},
+        eye_angles_history = {},
+        miss_count = 0,
+        hit_count = 0,
+        confidence = 50,
+        last_yaw = 0,
+        last_seen = globals.realtime()
+    }
+    local data = resolver_data[enemy]
+    local eye_angles = entity.get_prop(enemy, "m_angEyeAngles[1]") or 0
+    table.insert(data.eye_angles_history, { y = eye_angles })
+    if #data.eye_angles_history > RESOLVER_CONST.MAX_HISTORY_SIZE then
+        table.remove(data.eye_angles_history, 1)
+    end
+    data.last_seen = globals.realtime()
+    return true
+end
+local function handle_entities() end
+
+
+local function calculate_anim_freshness(enemy)
+    local sim_time = entity.get_prop(enemy, "m_flSimulationTime") or 0
+    if sim_time == 0 then return 0, 0 end
+    local tick_rate = globals.tickinterval()
+    local latency = client.latency()
+    local choke = get_adaptive_choke(enemy) 
+    local server_time = globals.curtime() - latency
+    local freshness_ticks = (server_time - sim_time) / tick_rate
+    local max_acceptable_freshness = 16 + choke + math.floor(latency / (tick_rate * 2)) 
+    local freshness_factor = math.clamp(1 - (freshness_ticks / max_acceptable_freshness), 0, 1)
+    return freshness_factor, freshness_ticks
+end
+
+
+local function extrapolate_yaw_from_anim_history(enemy, data)
+    if not data.anim_history or #data.anim_history < 2 then
+        return entity.get_prop(enemy, "m_flPoseParameter", 11) or 0
+    end
+
+    local filtered_history = {}
+    for _, anim in ipairs(data.anim_history) do
+        if globals.curtime() - anim.sim_time < 1.0 then
+            table.insert(filtered_history, anim)
+        end
+    end
+    if #filtered_history < 2 then
+        return (entity.get_prop(enemy, "m_flPoseParameter", 11) or 0) * 360 - 180
+    end
+
+    local recent_anims = {filtered_history[#filtered_history], filtered_history[#filtered_history-1]}
+    local yaw_trend = normalize_angle(recent_anims[1].pose_yaw - recent_anims[2].pose_yaw)
+    local time_diff = recent_anims[1].sim_time - recent_anims[2].sim_time
+    if time_diff <= 0 then return recent_anims[1].pose_yaw end
+    local yaw_rate = yaw_trend / time_diff
+    local extrapolation_time = globals.tickinterval() * get_adaptive_choke(enemy)
+    local jitter_factor = detect_jitter_pattern(data.yaw_history or {}) and 0.5 or 1.0 -- vменьшаеnmcz при джиттере
+    return normalize_angle(recent_anims[1].pose_yaw + yaw_rate * extrapolation_time * jitter_factor)
+end
+
+-- !
+local function apply_brute_angles(player)
+    local data = brute_data[player]
+    if not data or data.state ~= "BRUTEFORCE" or globals.tickcount() > data.end_tick then
+        data.state = "IDLE"
+        return
+    end
+
+    local yaw = adaptive_adjust(player, brute_angles.yaw[data.yaw_index])
+    local body_yaw = brute_angles.body_yaw[data.body_yaw_index]
+    local pitch = brute_angles.pitch[data.pitch_index]
+    data.yaw_index = (data.yaw_index % #brute_angles.yaw) + 1
+    data.body_yaw_index = (data.body_yaw_index % #brute_angles.body_yaw) + 1
+    data.pitch_index = (data.pitch_index % #brute_angles.pitch) + 1
+
+    plist.set(player, "Force body yaw", true)
+    plist.set(player, "Force body yaw value", math.clamp(body_yaw, -60, 60))
+    if ui.get(ui_new_logs_enable) then
+        client.color_log(255, 165, 0, string.format(
+            "[IMMORTAL] Brute: Enemy=%s, Yaw=%.1f, BodyYaw=%.1f, Pitch=%.1f",
+            entity.get_player_name(player), yaw, body_yaw, pitch
+        ))
+    end
+end
+
+local function AlternativePredictPosition(enemy, time_delta)
+    local x = entity.get_prop(enemy, "m_vecOrigin[0]") or 0
+    local y = entity.get_prop(enemy, "m_vecOrigin[1]") or 0
+    local z = entity.get_prop(enemy, "m_vecOrigin[2]") or 0
+    local vx = entity.get_prop(enemy, "m_vecVelocity[0]") or 0
+    local vy = entity.get_prop(enemy, "m_vecVelocity[1]") or 0
+    local vz = entity.get_prop(enemy, "m_vecVelocity[2]") or 0
+    
+    return {
+        x = x + vx * time_delta,
+        y = y + vy * time_delta,
+        z = z + vz * time_delta
+    }
+end
+
+local function AlternativeDetectJitterPattern(enemy, data)
+    if not data.yaw_history or #data.yaw_history < 3 then
+        return "unknown", 0
+    end
+
+    local angle_switches = 0
+    local jitter_amount = 0
+    local pose_yaw = entity.get_prop(enemy, "m_flPoseParameter", 11) or 0
+    pose_yaw = (pose_yaw * 360) - 180
+    local pose_history = data.pose_history or {}
+    table.insert(pose_history, pose_yaw)
+    if #pose_history > 10 then table.remove(pose_history, 1) end
+    data.pose_history = pose_history
+
+    for i = 1, #data.yaw_history - 1 do
+        local diff = math_util.angle_diff(data.yaw_history[i], data.yaw_history[i + 1])
+        local pose_diff = i <= #pose_history - 1 and math.abs(math_util.angle_diff(pose_history[i], pose_history[i + 1])) or 0
+        if diff > RESOLVER_CONST.JITTER_DETECTION_THRESHOLD and pose_diff < 30 then
+            angle_switches = angle_switches + 1
+            jitter_amount = math.max(jitter_amount, diff)
+        end
+    end
+
+    local pattern_type = "unknown"
+    if angle_switches >= 2 then
+        pattern_type = "random"
+    elseif angle_switches == 1 then
+        pattern_type = "switch"
+    elseif angle_switches == 0 then
+        pattern_type = "static"
+    end
+
+    if pattern_type == "random" then
+        jitter_amount = math.min(jitter_amount * 0.5, RESOLVER_CONST.MAX_DESYNC_DELTA)
+    elseif pattern_type == "switch" then
+        jitter_amount = math.min(jitter_amount, RESOLVER_CONST.MAX_DESYNC_DELTA)
+    else
+        jitter_amount = math.min(jitter_amount * 0.8, RESOLVER_CONST.MAX_DESYNC_DELTA)
+    end
+
+    return pattern_type, jitter_amount
+end
+
+
+local function smart_yaw_correction(enemy, final_yaw, data, yaw_diff, is_jittering, is_visible)
+    if not ui.get(ui_elements.ui_smart_yaw_correction) then
+        return final_yaw
+    end
+
+    local latency = client.latency()
+    local tick_rate = globals.tickinterval()
+    local state = get_player_state(enemy)
+    local correction_yaw = 0
+    local correction_intensity = 1.0
+    local anim_state = get_animation_state(enemy)
+    local is_fakelagging = detect_fakelag(enemy)
+    local lby_stability = std_dev(data.lby_history)
+
+
+    local yaw_diff_threshold = ui.get(ui_elements.yaw_diff_threshold) or 60
+    local desync_range = ui.get(ui_elements.desync_range) or 45
+    local auto_desync = ui.get(ui_elements.adaptive_auto_switch) 
+
+
+    local desync_side = data.desync_side or 0
+    local detected_desync_range = desync_range
+    if auto_desync then
+        desync_side, detected_desync_range = detect_desync_pattern(data.yaw_history, data.lby_history)
+        data.desync_side = desync_side
+        data.desync_range = detected_desync_range
+        if desync_side ~= 0 then
+            desync_range = detected_desync_range
+            log_debug(string.format("Auto desync detection for %s: side=%d, range=%.1f", 
+                entity.get_player_name(enemy), desync_side, desync_range))
+        end
+    end
+
+
+    if latency > 0.1 then
+        yaw_diff_threshold = yaw_diff_threshold * 1.2 
+    elseif latency < 0.05 then
+        yaw_diff_threshold = yaw_diff_threshold * 0.8
+    end
+    if is_jittering then
+        yaw_diff_threshold = yaw_diff_threshold * 0.7
+    end
+    if state == "standing" and not is_fakelagging then
+        yaw_diff_threshold = yaw_diff_threshold * 0.9
+    elseif state == "in_air" then
+        yaw_diff_threshold = yaw_diff_threshold * 1.3
+    elseif state == "crouching" then
+        yaw_diff_threshold = yaw_diff_threshold * 0.95     
+    end
+    yaw_diff_threshold = math.clamp(yaw_diff_threshold, 30, 90) --  
+
+
+    if is_fakelagging then
+        desync_range = desync_range * 1.3
+    elseif is_visible then
+        desync_range = desync_range * 0.8 
+    end
+    if data.miss_count > 2 then
+        desync_range = desync_range * (1 + data.miss_count * 0.1) 
+    end
+    if state == "crouching" then
+        desync_range = desync_range * 0.9 
+    elseif state == "running" then
+        desync_range = desync_range * 1.1 
+    end
+    desync_range = math.clamp(desync_range, DESYNC_CONST.MIN_DESYNC_RANGE, DESYNC_CONST.MAX_DESYNC_DELTA)
+
+    if latency > 0.1 then
+        correction_intensity = correction_intensity * 1.2
+    elseif latency < 0.05 then
+        correction_intensity = correction_intensity * 0.8
+    end
+    if anim_state == "crouching" then
+        correction_intensity = correction_intensity * 1.1 
+    elseif anim_state == "running" then
+        correction_intensity = correction_intensity * 0.9 
+    end
+
+
+    if is_jittering and ui.get(ui_elements.jitter_detection) then
+        correction_intensity = correction_intensity * 1.3
+        correction_yaw = ui.get(ui_elements.jitter_yaw_adjust) * (desync_side > 0 and 1 or -1)
+        if not desync_side then
+            correction_yaw = math.random(-desync_range, desync_range)
+        end
+        data.confidence = math.max(40, data.confidence - 10)
+        data.aa_pattern = "jitter"
+        log_debug(string.format("Jitter correction for %s: yaw=%.1f, intensity=%.2f", 
+            entity.get_player_name(enemy), correction_yaw, correction_intensity))
+    end
+--    if data.flick_detected and ui.get(ui_elements.flick_detection) then
+--        correction_yaw = ui.get(ui_elements.flick_yaw_correction) * (desync_side > 0 and 1.5 or -1.5)
+--        correction_intensity = correction_intensity * 1.2
+--        data.confidence = math.max(40, data.confidence - 5)
+--        data.aa_pattern = "flick"
+--        log_debug(string.format("Flick correction for %s: yaw=%.1f, intensity=%.2f", 
+--            entity.get_player_name(enemy), correction_yaw, correction_intensity))
+--    end
+    if yaw_diff > yaw_diff_threshold or desync_side ~= 0 then
+        correction_yaw = desync_range * desync_side
+        correction_intensity = correction_intensity * (1 + (data.miss_count * 0.1))
+        data.confidence = math.min(100, data.confidence + DESYNC_CONST.CONFIDENCE_BOOST * 100)
+        log_debug(string.format("Desync correction for %s: yaw=%.1f, side=%d, range=%.1f, intensity=%.2f", 
+            entity.get_player_name(enemy), correction_yaw, desync_side, desync_range, correction_intensity))
+    end
+    if state == "standing" and not is_fakelagging and lby_stability < ui.get(ui_elements.jitter_lby_threshold) then
+        local lby = get_lower_body_yaw(enemy)
+        correction_yaw = lby - final_yaw
+        correction_intensity = correction_intensity * 1.2
+        data.confidence = math.min(100, data.confidence + 15)
+        log_debug(string.format("Standing LBY correction for %s: yaw=%.1f, lby_stability=%.1f, intensity=%.2f", 
+            entity.get_player_name(enemy), correction_yaw, lby_stability, correction_intensity))
+    elseif state == "running" then
+        correction_yaw = 5
+        data.confidence = math.max(50, data.confidence - 5)
+    elseif state == "crouching" then
+        correction_yaw = -5
+        correction_intensity = correction_intensity * 1.1
+    end
+
+
+
+
+    local adjusted_yaw = math.lerp(final_yaw, normalize_angle(final_yaw + (correction_yaw * correction_intensity)), DESYNC_CONST.LERP_FACTOR)
+    adjusted_yaw = math.clamp(adjusted_yaw, -DESYNC_CONST.MAX_DESYNC_DELTA, DESYNC_CONST.MAX_DESYNC_DELTA)
+
+
+    if data.confidence < ui.get(ui_elements.confidence_threshold) and is_visible then
+        adjusted_yaw = normalize_angle(adjusted_yaw + math.random(-10, 10))
+        log_debug(string.format("Low confidence correction for %s: random adjust, final_yaw=%.1f", 
+            entity.get_player_name(enemy), adjusted_yaw))
+    end
+
+
+    data.last_yaw = adjusted_yaw
+    resolver_data[enemy] = data
+
+    log_debug(string.format("Smart Yaw Correction for %s: final_yaw=%.1f, threshold=%.1f, desync_range=%.1f, confidence=%.1f", 
+        entity.get_player_name(enemy), adjusted_yaw, yaw_diff_threshold, desync_range, data.confidence))
+
+    return adjusted_yaw
+end
+-- тест фейклаг
+local function predict_fakelag_position(enemy, pred_x, pred_y, pred_z)
+    local data = resolver_data[enemy] or {}
+    local is_fakelag, pattern, choke, avg_choke = detect_fakelag(enemy)
+    if not is_fakelag or not data.fakelag_history or #data.fakelag_history < 5 then
+        return pred_x, pred_y, pred_z
+    end
+
+    local vx = entity.get_prop(enemy, "m_vecVelocity[0]") or 0
+    local vy = entity.get_prop(enemy, "m_vecVelocity[1]") or 0
+    local vz = entity.get_prop(enemy, "m_vecVelocity[2]") or 0
+    local tick_rate = globals.tickinterval()
+    local latency = client.latency()
+
+
+    local choke_time = 0
+    if pattern == "adaptive" then
+
+        choke_time = avg_choke * tick_rate
+    elseif pattern == "high" then
+        choke_time = math.min(choke, 15) * tick_rate
+    elseif pattern == "low" then
+        choke_time = math.min(choke, 5) * tick_rate
+    end
+
+
+    choke_time = choke_time + latency
+    local new_x = pred_x + vx * choke_time
+    local new_y = pred_y + vy * choke_time
+    local new_z = pred_z + vz * choke_time - (800 * choke_time^2) / 2 
+
+
+    local current_head_x, current_head_y, current_head_z = entity.hitbox_position(enemy, 0)
+    local speed = math.sqrt(vx^2 + vy^2)
+    local clamp_range = 40 + math.clamp(speed / 5, 0, 30) + math.clamp(latency * 150, 0, 20)
+    new_x = math.clamp(new_x, current_head_x - clamp_range, current_head_x + clamp_range)
+    new_y = math.clamp(new_y, current_head_y - clamp_range, current_head_y + clamp_range)
+    new_z = math.clamp(new_z, current_head_z - clamp_range, current_head_z + clamp_range)
+
+    return new_x, new_y, new_z
+end
+
+-- боди нпхуй ах ах ах ах
+local function calculate_body_hitbox_offset(enemy, final_yaw)
+    local pose_yaw = entity.get_prop(enemy, "m_flPoseParameter", 11) or 0
+    pose_yaw = (pose_yaw * 360) - 180
+    local desync_side = resolver_data[enemy].desync_side or 0
+    local desync_amount = math.clamp(ui.get(ui_elements.desync_range) or 58, 0, 58)
+    local state = get_player_state(enemy)
+
+
+    local offset_distance = 4.5
+    if state == "crouching" then
+        offset_distance = 3.5 
+    elseif state == "in_air" then
+        offset_distance = 5.0
+    end
+
+
+    local body_offset = vector(0, 0, 0)
+    if desync_side ~= 0 then
+        local yaw_rad = math.rad(normalize_angle(pose_yaw + desync_side * desync_amount))
+        body_offset.x = math.cos(yaw_rad) * offset_distance
+        body_offset.y = math.sin(yaw_rad) * offset_distance
+
+        if state == "crouching" then
+            body_offset.z = -2.0 
+        elseif state == "in_air" then
+            body_offset.z = 1.0 
+        end
+    end
+
+    return body_offset
+end
+
+local function apply_body_hitbox_correction(enemy, pred_x, pred_y, pred_z, final_yaw)
+    local offset = calculate_body_hitbox_offset(enemy, final_yaw)
+    if offset.x == 0 and offset.y == 0 and offset.z == 0 then
+        return pred_x, pred_y, pred_z
+    end
+    return pred_x + offset.x, pred_y + offset.y, pred_z + offset.z
+end
+
+local function n3r4z1m_resolver()
+    if not ui.get(ui_resolver_enabled) then return end
+    local latency = client.latency()
+    if latency > 0.2 then
+        client.color_log(255, 0, 0, string.format("[IMMORTAL] Warning: High latency (%.0fms) may cause issues", latency * 1000))
+        return
+    end
+    local success, err = pcall(function()
+        local local_player = entity.get_local_player()
+        if not local_player or not entity.is_alive(local_player) then return end
+
+
+        local local_x, local_y, local_z = entity.get_prop(local_player, "m_vecOrigin")
+        local weapon = entity.get_player_weapon(local_player)
+        if not weapon then return end
+        local weapon_id = entity.get_prop(weapon, "m_iItemDefinitionIndex")
+        local bullet_speed = get_bullet_speed(weapon_id)
+        local weapon_damage = get_weapon_damage(weapon_id)
+        local is_scout = weapon_id == 40
+        local optimize_jump_scout = ui.get(ui_elements.jump_scout_opt) and is_scout
+        local enemies = entity.get_players(true)
+        local local_hp = entity.get_prop(local_player, "m_iHealth")
+        local max_enemies = 5 -- Ограничение на челиков
+
+        debug_info = {}
+        handle_entities()
+
+        if not resolved_target or not entity.is_alive(resolved_target) then
+            resolved_target = nil
+            for _, enemy in ipairs(enemies) do
+                if resolver_data[enemy] and (resolver_data[enemy].hit_count > 0 or resolver_data[enemy].miss_count < 3) then
+                    resolved_target = enemy
+                    client.color_log(255, 255, 255, "[IMMORTAL] пидор: " .. entity.get_player_name(enemy))
+                    break
+                end
+            end
+            if not resolved_target and #enemies > 0 then
+                resolved_target = enemies[1]
+                client.color_log(255, 255, 255, "[IMMORTAL] Resolved target: " .. entity.get_player_name(enemies[1]))
+            end
+        end
+
+        if resolved_target then
+            enemies = {resolved_target}
+        end
+
+        for _, enemy in ipairs(enemies) do
+            if entity.is_alive(enemy) then
+                local should_process = update_enemy_data_fix(enemy)
+                if should_process then
+                    local data = resolver_data[enemy]
+                    local eye_yaw = entity.get_prop(enemy, "m_angEyeAngles[1]") or 0
+                    local lby = get_lower_body_yaw(enemy)
+                    local final_yaw = get_real_yaw_from_animations(enemy)
+                    local mode = ui.get(ui_mode_select)
+
+                    if mode == "Custom" then
+
+--                        if ui.get(ui_elements.defensive_resolver) then
+--                                    local jump = bit.band(entity.get_prop(enemy, "m_fFlags"), 1)
+--                                    local pitch, _ = entity.get_prop(enemy, "m_angEyeAngles")
+--                                    if jump == 0 and pitch < -1 then
+--                                        plist.set(enemy, "Force pitch", true)
+--                                        plist.set(enemy, "Force pitch value", 0)
+--                                        plist.set(enemy, "Force body yaw", true)
+--                                        plist.set(enemy, "Force body yaw value", 0)
+--                                        if ui.get(ui_toggle_logs) then
+--                                            client.color_log(0, 255, 255, string.format("[IMMORTAL] Defensive Resolver applied for %s", entity.get_player_name(enemy)))
+--                                        end
+--                                    else
+--                                        plist.set(enemy, "Force pitch", false)
+--                                    end
+--                                end
+--                                local should_process = update_enemy_data_fix(enemy) or (ui.get(ui_elements.dormant_aimbot) and enemy == resolved_target)
+                        
+                        if ui.get(ui_elements.alternative_jitter) then
+                            local jitter_pattern, jitter_amount = AlternativeDetectJitterPattern(enemy, data)
+                            if jitter_pattern ~= "unknown" then
+                                if jitter_pattern == "random" then
+                                    final_yaw = math_util.normalize_angle(final_yaw + (math.random(-1, 1) * jitter_amount))
+                                elseif jitter_pattern == "switch" then
+                                    final_yaw = math_util.normalize_angle(final_yaw + (data.desync_side or 1) * jitter_amount)
+                                end
+                                data.aa_pattern = "jitter_" .. jitter_pattern
+
+                            end
+                        end
+                    end
+
+                    plist.set(enemy, "Force body yaw", true)
+                    plist.set(enemy, "Force body yaw value", math_util.clamp(final_yaw, -60, 60))
+                end
+            end
+        end
+    end)
+    if not success then
+        client.color_log(255, 255, 255, "[IMMORTAL] Critical error in resolver: ", err)
+    end
+end
+
+
+client.set_event_callback("setup_command", n3r4z1m_resolver)
+
+
+local shots = {
+    hit = {},
+    missed = { 0, 0, 0, 0, 0 }, -- 1 сприд, 2 пред еррор, 3 пинг (смерть), 4- хз, 5 тотально
+    total = 0
+}
+
+
+local function lerp(a, b, t)
+    return a + (b - a) * t
+end
+
+
+local function get_gradient_color(x, width)
+    local speed = 1 
+    local color1 = {255, 0, 255} 
+    local color2 = {0, 128, 255} 
+    local time = globals.realtime() * speed
+    local offset = (time % 2) / 2 
+    local pos = (x / width + offset) % 1
+
+    local r = lerp(color1[1], color2[1], pos)
+    local g = lerp(color1[2], color2[2], pos)
+    local b = lerp(color1[3], color2[3], pos)
+
+    return math.floor(r), math.floor(g), math.floor(b)
+end
+
+
+local function get_stats_gradient_color(x, width)
+    local speed = 0.75 
+    local color1 = {255, 255, 255}
+    local color2 = {80, 80, 80}
+    local time = globals.realtime() * speed
+    local offset = (time % 2) / 2 
+    local pos = (x / width * 0.4 + offset) % 1 
+
+    local r = lerp(color1[1], color2[1], pos)
+    local g = lerp(color1[2], color2[2], pos)
+    local b = lerp(color1[3], color2[3], pos)
+
+    return math.floor(r), math.floor(g), math.floor(b)
+end
+
+
+local function calculate_distance(pos1, pos2)
+    local dx = pos2.x - pos1.x
+    local dy = pos2.y - pos1.y
+    local dz = pos2.z - pos1.z
+    return math.sqrt(dx * dx + dy * dy + dz * dz)
+end
+
+
+
+
+local function get_current_target()
+    local local_player = entity.get_local_player()
+    if not local_player or not entity.is_alive(local_player) then
+        return nil
+    end
+
+    local local_pos = vector(entity.get_origin(local_player))
+    local enemies = entity.get_players(true) -- Только враги
+    local closest_enemy = nil
+    local min_distance = math.huge
+
+    for i = 1, #enemies do
+        local enemy = enemies[i]
+        if entity.is_alive(enemy) then
+            local enemy_pos = vector(entity.get_origin(enemy))
+            local distance = calculate_distance(local_pos, enemy_pos)
+            if distance < min_distance then
+                min_distance = distance
+                closest_enemy = enemy
+            end
+        end
+    end
+
+    return closest_enemy
+end
+-- !nachalo
+-- GLory 2
+local color = require("gamesense/color")
+
+
+local function utils_sine_yaw(tick, min, max)
+    local amplitude = (max - min) / 2
+    local center = (max + min) / 2
+    return center + (amplitude * math.sin(tick * 0.05))
+end
+
+local function utils_lerp(start, end_pos, time, ampl)
+    if (start == end_pos) then return end_pos end
+    ampl = ampl or (1 / globals.frametime())
+    local frametime = globals.frametime() * ampl
+    time = time * frametime
+    local val = start + ((end_pos - start) * time)
+    if (math.abs(val - end_pos) < 0.25) then return end_pos end
+    return val
+end
+
+
+local gradient_table = {
+    {color(244, 244, 244, 255), 0},
+    {color(115, 115, 115, 255), 0.5},
+    {color(233, 233, 233, 255), 1}
+}
+local stats_alpha = 0
+
+
+local function draw_rounded_rectangle(x, y, w, h, r, g, b, a, radius)
+    radius = math.min(radius, w / 2, h / 2)
+    local radius_2 = radius * 2
+    renderer.rectangle(x + radius, y, w - radius_2, h, r, g, b, a)
+    renderer.rectangle(x, y + radius, radius, h - radius_2, r, g, b, a)
+    renderer.rectangle((x + w) - radius, y + radius, radius, h - radius_2, r, g, b, a)
+    renderer.circle(x + radius, y + radius, r, g, b, a, radius, 180, 0.25)
+    renderer.circle(x + radius, (y + h) - radius, r, g, b, a, radius, 270, 0.25)
+    renderer.circle((x + w) - radius, y + radius, r, g, b, a, radius, 90, 0.25)
+    renderer.circle((x + w) - radius, (y + h) - radius, r, g, b, a, radius, 0, 0.25)
+end
+client.set_event_callback("paint", function()
+
+    local show = ui.get(ui_new_logs_enable)
+    local target_alpha = show and 1 or 0
+    stats_alpha = utils_lerp(stats_alpha, target_alpha, 0.03)
+
+
+    if stats_alpha <= 0.01 then return end
+
+
+    shots.missed[5] = shots.missed[1] + shots.missed[2] + shots.missed[4]
+
+
+    local screen_w, screen_h = client.screen_size()
+
+
+    local total_shots = #shots.hit + shots.missed[5]
+    local hits = #shots.hit
+    local misses = shots.missed[5]
+    local hit_rate = total_shots > 0 and string.format("%.1f", (hits / total_shots) * 100) or "0.0"
+    local current_target = get_current_target()
+    local target_name = current_target and entity.get_player_name(current_target) or "No target"
+    local stats_text = string.format("Shots: %d  |  Hits: %d  |  Misses: %d  |  Hit Rate: %s%%  |  Close Target: %s",
+        total_shots, hits, misses, hit_rate, target_name)
+
+    local title = "IMMORTAL resolver" -- ‹ Ĭɱmŏŗŧàɫ ›
+    local title_width = renderer.measure_text("b", title)
+    local title_x = screen_w / 2 - title_width / 2
+    local title_y = screen_h / 2 + 493
+
+    local stats_width = renderer.measure_text("", stats_text)
+    local stats_x = screen_w / 2 - stats_width / 2
+    local stats_y = screen_h / 2 + 513
+
+
+    local padding = -15
+    local background_width = math.max(title_width, stats_width) + padding * -1
+    local background_height = 22
+    local background_x = screen_w / 2 - background_width / 2
+    local background_y = title_y - padding
+
+
+    draw_rounded_rectangle(background_x, background_y, background_width, background_height, 0, 0, 0, math.floor(100 * stats_alpha), 20)
+
+
+    local x_offset = title_x
+    for i = 1, #title do
+        local char = title:sub(i, i)
+        local time_offset = (utils_sine_yaw(globals.realtime() * 10, 6, 3) * 1.5) % 1
+        local t = #title > 1 and (((i - 1) / (#title - 1)) + time_offset) % 1 or time_offset
+        local col = color.linear_gradient(gradient_table, t)
+        local r, g, b = col.r, col.g, col.b
+        local a = math.floor(col.a * stats_alpha)
+        renderer.text(x_offset, title_y, r, g, b, a, "b", 0, char)
+        x_offset = x_offset + renderer.measure_text("b", char)
+    end
+
+
+    local stats_x_offset = stats_x
+    for i = 1, #stats_text do
+        local char = stats_text:sub(i, i)
+        local time_offset = (utils_sine_yaw(globals.realtime() * 6, 8, 3) * 1.5) % 1
+        local t = #stats_text > 1 and (((i - 1) / (#stats_text - 1)) + time_offset) % 1 or time_offset
+        local col = color.linear_gradient(gradient_table, t)
+        local r, g, b = col.r, col.g, col.b
+        local a = math.floor(col.a * stats_alpha)
+        renderer.text(stats_x_offset, stats_y, r, g, b, a, "", 0, char)
+        stats_x_offset = stats_x_offset + renderer.measure_text("", char)
+    end
+end)
+
+client.set_event_callback("aim_hit", function(shot)
+    table.insert(shots.hit, {
+        entity.get_player_name(shot.target),
+        shot.hit_chance,
+        shot.damage,
+        ({ "generic", "head", "chest", "stomach", "left arm", "right arm", "left leg", "right leg", "neck", "unknown", "gear" })[shot.hitgroup + 1] or "unknown"
+    })
+end)
+
+client.set_event_callback("aim_miss", function(shot)
+    if shot.reason == "spread" then shots.missed[1] = shots.missed[1] + 1 end
+    if shot.reason == "prediction error" then shots.missed[2] = shots.missed[2] + 1 end
+    if shot.reason == "death" then shots.missed[3] = shots.missed[3] + 1 end
+    if shot.reason == "?" then shots.missed[4] = shots.missed[4] + 1 end
+end)
+
+
+client.set_event_callback("player_connect_full", function(e)
+    if client.userid_to_entindex(e.userid) == entity.get_local_player() then
+        shots.missed[1] = 0
+        shots.missed[2] = 0
+        shots.missed[3] = 0
+        shots.missed[4] = 0
+        for k in pairs(shots.hit) do shots.hit[k] = nil end
+    end
+end)
+
+
+client.set_event_callback("console_input", function(inp)
+    if inp:sub(1, 12) == "print_misses" then
+        client.color_log(180, 180, 180, string.format("spread: %d\nprediction errors: %d\ndeath: %d\nunknown: %d", shots.missed[1], shots.missed[2], shots.missed[3], shots.missed[4]))
+        return true
+    end
+    if inp:sub(1, 10) == "print_hits" then
+        for i=1, #shots.hit do
+            local curr = shots.hit[i]
+            client.color_log(180, 180, 180, string.format("[%d] %s's %s - hc:%d%%, dmg:%d", i, curr[1], curr[4], curr[2], curr[3]))
+        end
+        return true
+    end
+end)
+
+
+
+local function get_player_state(enemy)
+    local vx = entity.get_prop(enemy, "m_vecVelocity[0]") or 0
+    local vy = entity.get_prop(enemy, "m_vecVelocity[1]") or 0
+    local vz = entity.get_prop(enemy, "m_vecVelocity[2]") or 0
+    local speed = math.sqrt(vx^2 + vy^2)
+    local flags = entity.get_prop(enemy, "m_fFlags") or 0
+    if bit.band(flags, 1) == 0 then return "in_air" end
+    if speed < 10 then return "standing" end
+    if speed < 135 then return "slow_walk" end
+    return "walking"
+end
+
+local function table_contains(tab, val)
+    for _, v in ipairs(tab) do
+        if v == val then return true end
+    end
+    return false
+end
+
+local function is_player_jumping(enemy)
+    local flags = entity.get_prop(enemy, "m_fFlags") or 0
+    return bit.band(flags, 1) == 0
+end
+
+local function n3r4z1m_resolver()
+    if not ui.get(ui_resolver_enabled) then return end
+
+    local success, err = pcall(function()
+        local local_player = entity.get_local_player()
+        if not local_player or not entity.is_alive(local_player) then return end
+
+        if ui.get(ui_elements.hit_chance_bind) then
+            hit_chance_enabled = not hit_chance_enabled
+            client.color_log(255, 255, 255, hit_chance_enabled and "[IMMORTAL] Hit Chance Override Enabled" or "[IMMORTAL] Hit Chance Override Disabled")
+        end
+
+       debug_info = {}
+       handle_entities()  -- не используеться вроде
+ 
+        local local_x, local_y, local_z = entity.get_prop(local_player, "m_vecOrigin")
+        local weapon = entity.get_player_weapon(local_player)
+        if not weapon then return end
+        local weapon_id = entity.get_prop(weapon, "m_iItemDefinitionIndex")
+        local bullet_speed = get_bullet_speed(weapon_id)
+        local weapon_damage = get_weapon_damage(weapon_id)
+        local is_scout = weapon_id == 40
+        local optimize_jump_scout = ui.get(ui_elements.jump_scout_opt) and is_scout
+        local enemies = entity.get_players(true)
+        local local_hp = entity.get_prop(local_player, "m_iHealth")
+
+        debug_info = {}
+        handle_entities()
+
+
+local ent_c = {}
+ent_c.get_client_entity = vtable_bind('client.dll', 'VClientEntityList003', 3, 'void*(__thiscall*)(void*, int)')
+
+
+
+
+local function update_manual_predict_visibility()
+    local manual_enabled = ui.get(ui_elements.manual_predict)
+    local selected_states = ui.get(ui_elements.manual_states)
+    ui.set_visible(ui_elements.manual_states, manual_enabled)
+    ui.set_visible(ui_elements.predict_standing, manual_enabled and table_contains(selected_states, "Standing"))
+    ui.set_visible(ui_elements.predict_crouching, manual_enabled and table_contains(selected_states, "Crouching"))
+    ui.set_visible(ui_elements.predict_air, manual_enabled and table_contains(selected_states, "In-Air"))
+    ui.set_visible(ui_elements.predict_walking, manual_enabled and table_contains(selected_states, "Walking"))
+    ui.set_visible(ui_elements.predict_slowwalk, manual_enabled and table_contains(selected_states, "Slow Walk"))
+end
+ui.set_callback(ui_elements.manual_predict, update_manual_predict_visibility)
+ui.set_callback(ui_elements.manual_states, update_manual_predict_visibility)
+
+local function update_jitter_visibility()
+    local jitter_enabled = ui.get(ui_elements.jitter_detection)
+    ui.set_visible(ui_elements.jitter_threshold, jitter_enabled)
+    ui.set_visible(ui_elements.jitter_yaw_adjust, jitter_enabled)
+    ui.set_visible(ui_elements.jitter_lby_threshold, jitter_enabled)
+end
+ui.set_callback(ui_elements.jitter_detection, update_jitter_visibility)
+
+
+
+local function update_t3mp3st_visibility()
+    local t3mp3st_enabled = ui.get(ui_elements.t3mp3st_mode)
+
+    ui.set_visible(ui_elements.enhanced_defensive_fix, t3mp3st_enabled)
+
+    ui.set_visible(ui_elements.low_confidence_delay_label, t3mp3st_enabled)
+
+end
+ui.set_callback(ui_elements.t3mp3st_mode, update_t3mp3st_visibility)
+
+
+local function update_experimental_visibility()
+    local experimental_enabled = ui.get(ui_elements.experimental_mode)
+    ui.set_visible(ui_elements.velocity_scale, experimental_enabled)
+    ui.set_visible(ui_elements.gravity_factor, experimental_enabled)
+--    ui.set_visible(ui_elements.flick_detection, experimental_enabled)
+--    ui.set_visible(ui_elements.flick_velocity_threshold, experimental_enabled and ui.get(ui_elements.flick_detection))
+--    ui.set_visible(ui_elements.flick_reaction_time, experimental_enabled and ui.get(ui_elements.flick_detection))
+--    ui.set_visible(ui_elements.flick_prediction_boost, experimental_enabled and ui.get(ui_elements.flick_detection))
+--    ui.set_visible(ui_elements.flick_yaw_correction, experimental_enabled and ui.get(ui_elements.flick_detection))
+--    ui.set_visible(ui_elements.flick_mode, experimental_enabled and ui.get(ui_elements.flick_detection))
+    ui.set_visible(ui_elements.fakelag_optimization, experimental_enabled)
+    ui.set_visible(ui_elements.dormant_aimbot, experimental_enabled)
+    ui.set_visible(ui_elements.dormant_min_damage, experimental_enabled and ui.get(ui_elements.dormant_aimbot))
+    ui.set_visible(ui_elements.predict_beta, experimental_enabled)
+    ui.set_visible(ui_elements.resolver_correction, experimental_enabled)
+    ui.set_visible(ui_elements.resolver_correction_intensity, experimental_enabled and ui.get(ui_elements.resolver_correction))
+    ui.set_visible(ui_elements.mode_select, experimental_enabled)
+    ui.set_visible(ui_elements.jump_scout_opt, experimental_enabled)
+
+
+
+end
+ui.set_callback(ui_elements.experimental_mode, update_experimental_visibility)
+--ui.set_callback(ui_elements.flick_detection, update_experimental_visibility)
+ui.set_callback(ui_elements.resolver_correction, update_experimental_visibility)
+
+
+update_manual_predict_visibility()
+update_jitter_visibility()
+update_dormant_aimbot_visibility()
+update_experimental_visibility()
+update_t3mp3st_visibility()
+
+
+
+local resolver_data = {}
+local debug_info = {}
+
+local persist_target = nil
+local resolved_target = nil
+local hit_chance_enabled = false
+local adaptive_mode_index = 1
+local adaptive_modes = {"static", "dynamic", "beta"}
+
+local resolver_data = resolver_data or {}
+resolver_data[enemy] = {
+    brute_data = {},
+    avg_speed = 0,
+    last_yaw = entity.get_prop(enemy, "m_angEyeAngles[1]") or 0,
+    last_time = globals.realtime(),
+    last_non_flick_time = globals.realtime(),
+    last_sim_time = entity.get_prop(enemy, "m_flSimulationTime") or 0,
+    yaw_history = {},
+    pose_history = {},
+    desync_side = 0,
+    flick_detected = false,
+    angular_velocities = {},
+    miss_count = 0,
+    hit_count = 0,
+    last_seen = globals.realtime(),
+    miss_history = {},
+    aa_pattern = "unknown",
+    is_dormant = not is_fully_visible,
+    last_velocity = {x = 0, y = 0, z = 0},
+    last_lby_update = globals.curtime(),
+    lby_history = {},
+    confidence = 100,
+    pose_error = false
+}
+
+local function get_player_movement_state(enemy)
+    local forward_pose = entity.get_prop(enemy, "m_flPoseParameter", 0) or 0 
+    local strafe_pose = entity.get_prop(enemy, "m_flPoseParameter", 1) or 0
+    local speed = math.sqrt((entity.get_prop(enemy, "m_vecVelocity[0]") or 0)^2 + (entity.get_prop(enemy, "m_vecVelocity[1]") or 0)^2)
+    
+    if speed < 10 then
+        return "standing"
+    elseif forward_pose > 0.7 then
+        return "running_forward"
+    elseif forward_pose < -0.7 then
+        return "running_backward"
+    elseif strafe_pose > 0.5 then
+        return "strafing_right"
+    elseif strafe_pose < -0.5 then
+        return "strafing_left"
+    elseif speed > 100 then
+        return "running"
+    else
+        return "walking"
+    end
+end
+
+local function get_bullet_speed(weapon_id)
+    local bullet_speeds = {
+        [7] = 2500, [9] = 3000, [16] = 2500, [40] = 2500, [11] = 2000, [4] = 2250
+    }
+    return bullet_speeds[weapon_id] or 2500
+end
+
+local function get_weapon_damage(weapon_id)
+    local damages = {
+        [7] = 36, [9] = 115, [16] = 33, [40] = 88, [11] = 28, [4] = 30
+    }
+    return damages[weapon_id] or 30
+end
+
+local function is_fast_firing_weapon(weapon_id)
+    local fast_firing = { [11] = true, [32] = true }
+    return fast_firing[weapon_id] or false
+end
+
+local function is_player_jumping(player)
+    local flags = entity.get_prop(player, "m_fFlags")
+    return bit.band(flags, 1) == 0
+end
+
+local function normalize_angle(angle)
+    while angle > 180 do angle = angle - 360 end
+    while angle < -180 do angle = angle + 360 end
+    return angle
+end
+
+local function angle_difference(a, b)
+    local diff = normalize_angle(a - b)
+    return math.abs(diff)
+end
+
+local function lerp(a, b, t) return a + (b - a) * t end
+local function clamp(x, min, max) return math.max(min, math.min(x, max)) end
+
+local function std_dev(values)
+    if #values < 2 then return 0 end
+    local mean = 0
+    for i = 1, #values do mean = mean + values[i] end
+    mean = mean / #values
+    local sum_sq_diff = 0
+    for i = 1, #values do sum_sq_diff = sum_sq_diff + (values[i] - mean)^2 end
+    return math.sqrt(sum_sq_diff / (#values - 1))
+end
+
+local function get_player_state(player)
+    local flags = entity.get_prop(player, "m_fFlags")
+    local vx = entity.get_prop(player, "m_vecVelocity[0]") or 0
+    local vy = entity.get_prop(player, "m_vecVelocity[1]") or 0
+    local speed = math.sqrt(vx^2 + vy^2)
+    if bit.band(flags, 1) == 0 then return "in_air"
+    elseif bit.band(flags, 4) ~= 0 then return "crouching"
+    elseif speed < 10 then return "standing"
+    elseif speed < 100 then return "slow_walk"
+    else return "walking" end
+end
+
+local function get_animation_state(enemy)
+    local anim_layer = entity.get_prop(enemy, "m_AnimOverlay", 1) or 0
+    local weight = entity.get_prop(enemy, "m_flWeight", 1) or 0
+    if weight > 0 then
+        if anim_layer == 3 then return "walking"
+        elseif anim_layer == 4 then return "running"
+        elseif anim_layer == 6 then return "crouching"
+        end
+    end
+    return "standing"
+end
+local function detect_jitter_pattern(yaw_history)
+    if #yaw_history < 5 then return false end
+    local diffs = {}
+    for i = 2, #yaw_history do
+        table.insert(diffs, angle_difference(yaw_history[i], yaw_history[i-1]))
+    end
+    local avg_diff = 0
+    for _, diff in ipairs(diffs) do avg_diff = avg_diff + diff end
+    avg_diff = avg_diff / #diffs
+    local std = std_dev(diffs)
+    return std > ui.get(ui_elements.jitter_threshold) and math.abs(avg_diff) < 30
+end
+
+local function detect_desync_pattern(yaw_history, lby_history)
+    if #yaw_history < DESYNC_CONST.HISTORY_SIZE then
+        return 0, DESYNC_CONST.MIN_DESYNC_RANGE
+    end
+
+
+    local yaw_std_dev = calculate_std_dev(yaw_history)
+    local lby_std_dev = calculate_std_dev(lby_history)
+    local desync_side = 0
+    local desync_range = DESYNC_CONST.MIN_DESYNC_RANGE
+
+
+    if yaw_std_dev > DESYNC_CONST.JITTER_DETECTION_THRESHOLD then
+
+        desync_side = yaw_history[#yaw_history] > yaw_history[#yaw_history - 1] and 1 or -1
+        desync_range = math.min(yaw_std_dev * 0.8, DESYNC_CONST.MAX_DESYNC_RANGE)
+        log_debug(string.format("Jitter detected: std_dev=%.1f, range=%.1f, side=%d", yaw_std_dev, desync_range, desync_side))
+    elseif lby_std_dev < 10 and math.abs(yaw_history[#yaw_history] - lby_history[#lby_history]) > 30 then
+
+        desync_side = yaw_history[#yaw_history] > lby_history[#lby_history] and 1 or -1
+        desync_range = math.clamp(math.abs(yaw_history[#yaw_history] - lby_history[#lby_history]), DESYNC_CONST.MIN_DESYNC_RANGE, DESYNC_CONST.MAX_DESYNC_RANGE)
+        log_debug(string.format("Static desync: lby_std_dev=%.1f, range=%.1f, side=%d", lby_std_dev, desync_range, desync_side))
+    else
+
+        local max_diff = 0
+        for i = 2, #yaw_history do
+            local diff = math.abs(math_util.angle_diff(yaw_history[i], yaw_history[i-1]))
+            max_diff = math.max(max_diff, diff)
+        end
+        if max_diff > 30 then
+            desync_side = yaw_history[#yaw_history] > yaw_history[#yaw_history - 1] and 1 or -1
+            desync_range = math.min(max_diff * 0.7, DESYNC_CONST.MAX_DESYNC_RANGE)
+            log_debug(string.format("Wide desync: max_diff=%.1f, range=%.1f, side=%d", max_diff, desync_range, desync_side))
+        end
+    end
+
+    return desync_side, desync_range
+end
+
+local function get_real_yaw_from_animations(enemy)
+    local pose_param = entity.get_prop(enemy, "m_flPoseParameter", 11)
+    local data = resolver_data[enemy] or {}
+    if pose_param == nil or type(pose_param) ~= "number" then
+        data.pose_error = true
+        resolver_data[enemy] = data
+        return entity.get_prop(enemy, "m_angEyeAngles[1]") or 0
+    end
+    data.pose_error = false
+    resolver_data[enemy] = data
+    return pose_param * 120 - 60
+end
+
+local function get_lower_body_yaw(enemy)
+    local lby = entity.get_prop(enemy, "m_flLowerBodyYawTarget")
+    return lby or 0
+end
+
+local function should_use_lby(enemy, lby, eye_yaw, state, last_lby_update)
+    local current_time = globals.curtime()
+    local lby_diff = angle_difference(lby, eye_yaw)
+    if state == "standing" and (current_time - last_lby_update >= 1.1 or math.abs(lby_diff) > 60) then
+        return true
+    end
+    return false
+end
+
+local function is_shooting(enemy)
+    local weapon = entity.get_player_weapon(enemy)
+    if weapon then
+        local last_shot_time = entity.get_prop(weapon, "m_fLastShotTime") or 0
+        return globals.curtime() - last_shot_time < 0.1
+    end
+    return false
+end
+
+local function detect_fakelag(enemy)
+    local data = enemy_data[enemy] or {}
+    local sim_times = data.sim_times or {}
+    if #sim_times < 2 then return false end
+    local dt = sim_times[#sim_times] - sim_times[#sim_times - 1]
+    local expected_dt = globals.tickinterval()
+    local choked = math.floor(dt / expected_dt) - 1
+    return choked > 1
+end
+
+local function can_see_through_wall(local_player, enemy)
+    local lx, ly, lz = client.eye_position()
+    local ex, ey, ez = entity.hitbox_position(enemy, 0)
+    local fraction = client.trace_line(local_player, lx, ly, lz, ex, ey, ez)
+    return fraction < 1.0
+end
+
+local function trace_to_lby(enemy, predicted_yaw)
+    local local_player = entity.get_local_player()
+    local lx, ly, lz = client.eye_position()
+    local ex, ey, ez = entity.get_origin(enemy)
+    local angle_rad = math.rad(predicted_yaw)
+    local offset_x = ex + math.cos(angle_rad) * 50
+    local offset_y = ey + math.sin(angle_rad) * 50
+    local fraction, hit_entity = client.trace_line(local_player, lx, ly, lz, offset_x, offset_y, ez)
+    return fraction < 1.0 and hit_entity == enemy
+end
+
+
+local weapon_spreads = {
+    [7] = {standing = 0.2, walking = 0.6, slow_walk = 0.4, in_air = 0.8, crouching = 0.1},
+    [9] = {standing = 0.05, walking = 0.2, slow_walk = 0.15, in_air = 0.3, crouching = 0.02},
+    [16] = {standing = 0.2, walking = 0.5, slow_walk = 0.3, in_air = 0.7, crouching = 0.1},
+    [40] = {standing = 0.1, walking = 0.3, slow_walk = 0.2, in_air = 0.4, crouching = 0.05},
+    [11] = {standing = 0.3, walking = 0.8, slow_walk = 0.6, in_air = 1.0, crouching = 0.2},
+    [4] = {standing = 0.2, walking = 0.6, slow_walk = 0.4, in_air = 0.8, crouching = 0.1}
+}
+
+local function compensate_spread(weapon_id, player_state, pred_x, pred_y, pred_z, distance)
+    if not ui.get(ui_elements.spread_compensation) then return pred_x, pred_y, pred_z end
+    local spread_data = weapon_spreads[weapon_id] or {standing = 0.2, walking = 0.6, slow_walk = 0.4, in_air = 0.8, crouching = 0.1}
+    local base_spread = spread_data[player_state] or spread_data.standing
+    local distance_factor = math.min(1.0, distance / 1000)
+    local spread_factor = base_spread * (1 - distance_factor * 0.5) * 0.5
+    local offset_x = math.random(-spread_factor, spread_factor)
+    local offset_y = math.random(-spread_factor, spread_factor)
+    local max_offset = 2.0
+    offset_x = clamp(offset_x, -max_offset, max_offset)
+    offset_y = clamp(offset_y, -max_offset, max_offset)
+    return pred_x + offset_x, pred_y + offset_y, pred_z
+end
+
+local function enhanced_defensive_fix(enemy, final_yaw)
+    if not ui.get(ui_elements.enhanced_defensive_fix) then return final_yaw end
+    local data = resolver_data[enemy] or {}
+    local sim_time = entity.get_prop(enemy, "m_flSimulationTime") or 0
+    local cur_time = globals.curtime()
+    local tick_interval = globals.tickinterval()
+    local anim_freshness = sim_time > 0 and (cur_time - sim_time) / tick_interval or 0
+
+
+    if anim_freshness > 3 then
+        data.confidence = math.max(30, data.confidence - 5)
+        return final_yaw
+    end
+
+
+    local pose_yaw = entity.get_prop(enemy, "m_flPoseParameter", 11) or 0
+    pose_yaw = (pose_yaw * 360) - 180
+    local lby = get_lower_body_yaw(enemy)
+    local eye_yaw = entity.get_prop(enemy, "m_angEyeAngles[1]") or 0
+    local lby_diff = math_util.angle_diff(lby, eye_yaw)
+    local pose_diff = math_util.angle_diff(pose_yaw, eye_yaw)
+
+    if detect_fakelag(enemy) and not is_shooting(enemy) then
+        if math.abs(lby_diff) > 35 or math.abs(pose_diff) > 35 then
+            final_yaw = normalize_angle(pose_yaw)
+            data.confidence = math.max(60, data.confidence - 3)
+        end
+    end
+
+
+    if ui.get(ui_elements.fakelag_optimization) then
+        local choke = get_choke(enemy)
+        if choke > 2 then
+            local desync_side = detect_desync_pattern(data.yaw_history) or data.desync_side or 0
+            final_yaw = normalize_angle(final_yaw + (desync_side * 58 * (1 - anim_freshness / 3)))
+            data.confidence = math.max(50, data.confidence - 2)
+        end
+    end
+
+    resolver_data[enemy] = data
+    return final_yaw
+end
+
+-- region dormat '!' [tts]
+local function dormant_aimbot(cmd)
+    if not ui.get(ui_elements.dormant_aimbot) then return end
+    local lp = entity.get_local_player()
+    if not lp or not entity.is_alive(lp) then return end
+
+    local weapon = entity.get_player_weapon(lp)
+    if not weapon then return end
+    local weapon_id = entity.get_prop(weapon, "m_iItemDefinitionIndex")
+    local bullet_speed = get_bullet_speed(weapon_id)
+    local eyepos = vector(client.eye_position())
+    local simtime = entity.get_prop(lp, "m_flSimulationTime")
+    local weapon_data = weapons(weapon)
+    local scoped = entity.get_prop(lp, "m_bIsScoped") == 1
+    local onground = bit.band(entity.get_prop(lp, 'm_fFlags'), bit.lshift(1, 0))
+    local can_shoot = simtime > math.max(entity.get_prop(lp, "m_flNextAttack"), entity.get_prop(weapon, "m_flNextPrimaryAttack"))
+    local ent = native_GetClientEntity(weapon)
+    local inaccuracy = ent and native_IsWeapon(ent) and native_GetInaccuracy(ent) or 0
+
+    for player = 1, globals.maxplayers() do
+        if entity.is_dormant(player) and entity.is_enemy(player) and entity.get_prop(entity.get_player_resource(), "m_bConnected", player) == 1 then
+            local _, _, _, _, alpha_multiplier = entity.get_bounding_box(player)
+            if alpha_multiplier > 0.795 then
+                local pred_x, pred_y, pred_z = choose_prediction(player, eyepos.x, eyepos.y, eyepos.z, bullet_speed, false)
+                local ent, dmg = client.trace_bullet(lp, eyepos.x, eyepos.y, eyepos.z, pred_x, pred_y, pred_z, true)
+                local can_hit = dmg > ui.get(ui_elements.dormant_min_damage) and not client_visible(pred_x, pred_y, pred_z)
+                
+                if can_hit and can_shoot and inaccuracy < 0.009 then
+                    local data = resolver_data[player] or { confidence = 100, last_yaw = 0 }
+                    local safe_hitbox = (data.confidence > 50 and ui.get(ui_elements.smart_head_aim)) and "Head" or "Chest"
+                    plist.set(player, "Override preferred hitbox", safe_hitbox)
+                    plist.set(player, "Force body yaw", true)
+                    plist.set(player, "Force body yaw value", clamp(data.last_yaw or 0, -60, 60))
+                    
+                    modify_velocity(cmd, (scoped and weapon_data.max_player_speed_alt or weapon_data.max_player_speed) * 0.33)
+                    if not scoped and weapon_data.type == "sniperrifle" and cmd.in_jump == 0 and onground == 1 then
+                        cmd.in_attack2 = 1
+                    end
+                    
+                    local pitch, yaw = eyepos:to(vector(pred_x, pred_y, pred_z)):angles()
+                    cmd.pitch = pitch
+                    cmd.yaw = yaw
+                    cmd.in_attack = 1
+                    
+                    if ui.get(ui_new_logs_enable) then
+                        client.color_log(255, 165, 0, string.format(
+                            "[IMMORTAL] Dormant Shot: %s, Dmg=%d, Alpha=%.3f, Inacc=%.3f, Hitbox=%s",
+                            entity.get_player_name(player), dmg, alpha_multiplier, inaccuracy, safe_hitbox
+                        ))
+                    end
+                end
+            end
+        end
+    end
+end
+
+client.set_event_callback("setup_command", dormant_aimbot)
+
+local function update_enemy_data_fix(enemy)
+    local local_player = entity.get_local_player()
+    if not local_player or not entity.is_alive(local_player) then return false end
+
+    local lx, ly, lz = client.eye_position()
+    local ex, ey, ez = entity.hitbox_position(enemy, 0)
+    local fraction = client.trace_line(local_player, lx, ly, lz, ex, ey, ez)
+    local is_partially_visible = fraction < 1.0 and fraction > 0.0
+    local is_fully_visible = entity.get_prop(enemy, "m_bSpotted") == 1
+
+    if is_partially_visible or is_fully_visible or (ui.get(ui_elements.dormant_aimbot) and enemy == resolved_target and can_see_through_wall(local_player, enemy)) then
+        if not resolver_data[enemy] then
+            resolver_data[enemy] = {
+                avg_speed = 0,
+                last_yaw = entity.get_prop(enemy, "m_angEyeAngles[1]") or 0,
+                last_time = globals.realtime(),
+                last_non_flick_time = globals.realtime(),
+                last_sim_time = entity.get_prop(enemy, "m_flSimulationTime") or 0,
+                yaw_history = {},
+                desync_side = 0,
+                pose_history = {},
+                sim_time_history = {}, 
+                flick_detected = false,
+                angular_velocities = {},
+                miss_count = 0,
+                hit_count = 0,
+                last_seen = globals.realtime(),
+                miss_history = {},
+                aa_pattern = "unknown",
+                is_dormant = not is_fully_visible,
+                last_velocity = {x = 0, y = 0, z = 0},
+                last_lby_update = globals.curtime(),
+                lby_history = {},
+                confidence = 100,
+                pose_error = false
+            }
+        else
+            resolver_data[enemy].last_seen = globals.realtime()
+            resolver_data[enemy].is_dormant = not is_fully_visible
+        end
+
+
+        local sim_time = entity.get_prop(enemy, "m_flSimulationTime") or 0
+        resolver_data[enemy].sim_time_history = resolver_data[enemy].sim_time_history or {}
+        table.insert(resolver_data[enemy].sim_time_history, sim_time)
+        if #resolver_data[enemy].sim_time_history > 10 then
+            table.remove(resolver_data[enemy].sim_time_history, 1)
+        end
+
+        return true
+    end
+
+    if resolver_data[enemy] and (globals.realtime() - resolver_data[enemy].last_seen < 3.0) then
+        resolver_data[enemy].is_dormant = true
+        return true
+    end
+    return false
+end
+
+
+local function detect_fakelag(enemy)
+    local choke = get_choke(enemy)
+    local sim_time = entity.get_prop(enemy, "m_flSimulationTime") or 0
+    local data = resolver_data[enemy] or {}
+    local is_fakelag = choke > 2 and sim_time > 0
+    if is_fakelag and ui.get(ui_new_logs_enable) then
+        client.color_log(255, 200, 0, string.format(
+            "[IMMORTAL] Fakelag: Enemy=%s, Choke=%d ticks",
+            entity.get_player_name(enemy), choke
+        ))
+    end
+    return is_fakelag
+end
+
+
+local function AlternativePredictPosition(enemy, time_delta)
+    local x = entity.get_prop(enemy, "m_vecOrigin[0]") or 0
+    local y = entity.get_prop(enemy, "m_vecOrigin[1]") or 0
+    local z = entity.get_prop(enemy, "m_vecOrigin[2]") or 0
+    local vx = entity.get_prop(enemy, "m_vecVelocity[0]") or 0
+    local vy = entity.get_prop(enemy, "m_vecVelocity[1]") or 0
+    local vz = entity.get_prop(enemy, "m_vecVelocity[2]") or 0
+    
+    return {
+        x = x + vx * time_delta,
+        y = y + vy * time_delta,
+        z = z + vz * time_delta
+    }
+end
+
+
+
+local function base_predict_position(enemy, local_x, local_y, local_z, bullet_speed, is_jump_scout, prediction_mode)
+    local x, y, z = entity.get_prop(enemy, "m_vecOrigin")
+    local vx = entity.get_prop(enemy, "m_vecVelocity[0]") or 0
+    local vy = entity.get_prop(enemy, "m_vecVelocity[1]") or 0
+    local vz = entity.get_prop(enemy, "m_vecVelocity[2]") or 0
+    local speed = math.sqrt(vx^2 + vy^2)
+    local distance = math.sqrt((x - local_x)^2 + (y - local_y)^2 + (z - local_z)^2)
+    local travel_time = distance / bullet_speed 
+    local latency = client.latency() 
+    local tick_rate = globals.tickinterval()
+    local sim_time = entity.get_prop(enemy, "m_flSimulationTime") or 0
+    local server_time = globals.curtime() - latency -- серверное время
+    local time_diff = math.max(0, server_time - sim_time) 
+    local data = resolver_data[enemy] or { velocity_history = {}, anim_history = {}, confidence = 100, miss_count = 0 }
+
+    table.insert(data.velocity_history, { vx = vx, vy = vy, vz = vz, time = sim_time })
+    if #data.velocity_history > 20 then table.remove(data.velocity_history, 1) end
+    local pose_yaw = entity.get_prop(enemy, "m_flPoseParameter", 11) or 0
+    pose_yaw = (pose_yaw * 360) - 180
+    table.insert(data.anim_history, { pose_yaw = pose_yaw, sim_time = sim_time })
+    if #data.anim_history > 20 then table.remove(data.anim_history, 1) end
+    resolver_data[enemy] = data
+
+
+    local adaptive_choke = get_adaptive_choke(enemy) 
+    local ticks_ahead = math.ceil((travel_time + latency + time_diff + adaptive_choke * tick_rate) / tick_rate)
+    ticks_ahead = math.clamp(ticks_ahead, 1, 16) -- ограничение
+
+
+    local prediction_factor = 1.0
+    local state = get_player_state(enemy)
+    local state_factor = state_scores[state] or 1.0
+    local ping_factor = math.clamp(latency / 0.06, 0.5, 2.5) -- усиленная чувствительность к пингу (мб ошибка это делать)
+    local loss = globals.packet_loss and globals.packet_loss() or 0
+    local loss_factor = math.clamp(1 + (loss / 15), 1.0, 1.5) -- учёт потерь пакетов
+    local anim_freshness = sim_time > 0 and (globals.curtime() - sim_time) / tick_rate or 0
+    local freshness_factor = math.clamp(1 - (anim_freshness / 9), 0.5, 1.0) -- свежесть анимаций (9)
+    local jitter_factor = detect_jitter_pattern(data.yaw_history or {}) and 0.7 or 1.0
+    local fakelag_factor = detect_fakelag(enemy) and 1.3 or 1.0 
+
+    -- анализ траектории (смена направления или остановка)
+    local direction_change_factor = 1.0
+    local accel_factor = 1.0
+    if #data.velocity_history >= 4 then
+        local curr_vel = data.velocity_history[#data.velocity_history]
+        local last_vel = data.velocity_history[#data.velocity_history-1]
+        local prev_vel = data.velocity_history[#data.velocity_history-2]
+        local angle_diff = math.abs(math.deg(math.atan2(curr_vel.vy, curr_vel.vx) - math.atan2(last_vel.vy, last_vel.vx)))
+        local speed_diff = math.abs(speed - math.sqrt(last_vel.vx^2 + last_vel.vy^2))
+        if angle_diff > 45 or speed_diff > 100 then
+            direction_change_factor = 0.6 
+        end
+
+        local accel_x = (curr_vel.vx - last_vel.vx) / (curr_vel.time - last_vel.time + 0.001)
+        local accel_y = (curr_vel.vy - last_vel.vy) / (curr_vel.time - last_vel.time + 0.001)
+        local accel = math.sqrt(accel_x^2 + accel_y^2)
+        accel_factor = math.clamp(1 + (accel / 2000), 0.8, 1.3) -- ускорение
+    end
+
+    -- fast predict
+    if prediction_mode == "simple" then
+        prediction_factor = 0.5
+    elseif prediction_mode == "beta" then
+        prediction_factor = ping_factor * fakelag_factor * 1.2
+    else
+        prediction_factor = ui.get(ui_elements.prediction_factor) / 100
+        if ui.get(ui_elements.fast_mode) then
+            local speed_factor = math.clamp(speed / 150, 0.7, 1.7) 
+            local confidence_factor = math.clamp(data.confidence / 100, 0.5, 1.0) 
+            local miss_penalty = math.clamp(1 - (data.miss_count or 0) * 0.1, 0.5, 1.0) 
+            local anim_stability = calculate_std_dev(data.anim_history, function(anim) return anim.pose_yaw end) or 0
+            local anim_factor = math.clamp(1 - (anim_stability / 60), 0.6, 1.0) 
+
+            prediction_factor = prediction_factor * speed_factor * ping_factor * loss_factor * freshness_factor * jitter_factor * state_factor * direction_change_factor * accel_factor * confidence_factor * miss_penalty * anim_factor
+            prediction_factor = math.clamp(prediction_factor, 0.7, ui.get(ui_elements.fast_mode_aggressiveness or 200) / 100)
+        end
+    end
+
+
+    local pred_x = x
+    local pred_y = y
+    local pred_z = z
+    local friction = 5.0
+    local max_speed = 250 
+    local sim_ticks = math.floor(ticks_ahead)
+    local remaining_time = (ticks_ahead - sim_ticks) * tick_rate
+
+    for i = 1, sim_ticks do
+        local vel_magnitude = math.sqrt(vx^2 + vy^2)
+        if vel_magnitude > 0 then
+            local friction_loss = math.min(vel_magnitude, friction * tick_rate * prediction_factor)
+            vx = vx * (1 - friction_loss / vel_magnitude)
+            vy = vy * (1 - friction_loss / vel_magnitude)
+        end
+        pred_x = pred_x + vx * tick_rate * prediction_factor
+        pred_y = pred_y + vy * tick_rate * prediction_factor
+        pred_z = pred_z + vz * tick_rate * prediction_factor
+        if is_jump_scout and is_player_jumping(enemy) then
+            vz = vz - 800 * tick_rate 
+            pred_z = pred_z + vz * tick_rate * prediction_factor
+        end
+        vx = math.clamp(vx, -max_speed, max_speed)
+        vy = math.clamp(vy, -max_speed, max_speed)
+    end
+
+    pred_x = pred_x + vx * remaining_time * prediction_factor
+    pred_y = pred_y + vy * remaining_time * prediction_factor
+    pred_z = pred_z + vz * remaining_time * prediction_factor
+
+
+    local local_player = entity.get_local_player()
+    if local_player then
+        local fraction, hit_entity = client.trace_line(local_player, x, y, z, pred_x, pred_y, pred_z)
+        if fraction < 1.0 and hit_entity == 0 then
+            local reduced_factor = prediction_factor * 0.5
+            pred_x = x + vx * ticks_ahead * tick_rate * reduced_factor
+            pred_y = y + vy * ticks_ahead * tick_rate * reduced_factor
+            pred_z = z + vz * ticks_ahead * tick_rate * reduced_factor
+            if ui.get(ui_new_logs_enable) then
+                client.color_log(255, 100, 100, string.format(
+                    "[IMMORTAL] Fast Predict: Collision detected for %s, reduced factor to %.2f",
+                    entity.get_player_name(enemy), reduced_factor
+                ))
+            end
+        end
+    end
+
+    -- адаптивное ограничение !
+    local current_head_x, current_head_y, current_head_z = entity.hitbox_position(enemy, 0)
+    local clamp_range = 40 + math.clamp(speed / 4, 0, 50) + math.clamp(latency * 250, 0, 40)
+    if ui.get(ui_elements.fast_mode) then
+        clamp_range = clamp_range * 1.3 
+    end
+    pred_x = math.clamp(pred_x, current_head_x - clamp_range, current_head_x + clamp_range)
+    pred_y = math.clamp(pred_y, current_head_y - clamp_range, current_head_y + clamp_range)
+    pred_z = math.clamp(pred_z, current_head_z - clamp_range, current_head_z + clamp_range)
+
+    if ui.get(ui_elements.dormant_aimbot) and resolver_data[enemy].is_dormant then
+        pred_x, pred_y, pred_z = AlternativePredictPosition(enemy, globals.tickinterval() * 16)
+        if ui.get(ui_elements.a_brute) and brute_data[enemy] and brute_data[enemy].state == "BRUTEFORCE" then
+            apply_brute_angles(enemy)
+        end
+    end
+
+    if ui.get(ui_new_logs_enable) then
+        client.color_log(255, 165, 0, string.format(
+            "[IMMORTAL] Fast Predict: Enemy=%s, Factor=%.2f, Ticks=%d, Pos=(%.1f,%.1f,%.1f), Speed=%.0f, Ping=%.0fms, Loss=%.0f%%, AnimFresh=%.1f, Jitter=%s, State=%s, DirChange=%.2f, Accel=%.2f, Confidence=%.0f, Misses=%d", -- бляя ну хз мб работает :((
+            entity.get_player_name(enemy), prediction_factor, ticks_ahead, pred_x, pred_y, pred_z, speed, latency * 1000, loss, anim_freshness,
+            detect_jitter_pattern(data.yaw_history or {}) and "Yes" or "No", state, direction_change_factor, accel_factor, data.confidence, data.miss_count
+        ))
+    end
+
+    return pred_x, pred_y, pred_z
+end
+
+
+local function choose_prediction(enemy, local_x, local_y, local_z, bullet_speed, is_jump_scout)
+    local data = resolver_data[enemy] or {}
+    local mode = ui.get(ui_elements.adaptive_prediction) and adaptive_modes[adaptive_mode_index] or (ui.get(ui_elements.predict_beta) and "beta" or "dynamic")
+    if data.avg_speed < 10 and not data.flick_detected then
+        return predict_position_simple(enemy)
+    elseif mode == "beta" then
+        return predict_position_beta(enemy, local_x, local_y, local_z, bullet_speed, is_jump_scout)
+    elseif mode == "static" then
+        return predict_position_simple(enemy)
+    else
+        return predict_position(enemy, local_x, local_y, local_z, bullet_speed, is_jump_scout)
+    end
+end
+
+
+local function calculate_hit_chance(enemy, pred_x, pred_y, pred_z, local_x, local_y, local_z, weapon_id)
+    local ex, ey, ez = entity.hitbox_position(enemy, 0)
+    local distance = math.sqrt((pred_x - local_x)^2 + (pred_y - local_y)^2 + (pred_z - local_z)^2)
+    local hitbox_radius = 5
+    local error_margin = 8
+    local distance_factor = clamp(1 - (distance / 1000), 0.5, 1.0)
+    local weapon_accuracy_factor = is_fast_firing_weapon(weapon_id) and 0.8 or 1.0
+    local hit_chance = math.min(100, math.max(0, (100 - (distance / hitbox_radius) * error_margin) * distance_factor * weapon_accuracy_factor))
+
+    return hit_chance
+end
+
+local function n3r4z1m_resolver()
+    if not ui.get(ui_resolver_enabled) then return end
+    local latency = client.latency()
+    if latency > 0.2 then
+        client.color_log(255, 0, 0, string.format("[IMMORTAL] Warning: High latency (%.0fms) may cause issues", latency * 1000))
+    end
+    if mode == "Custom" then
+end
+    local local_player = entity.get_local_player()
+    if not local_player or not entity.is_alive(local_player) then return end
+
+    local local_x, local_y, local_z = entity.get_prop(local_player, "m_vecOrigin")
+    local weapon = entity.get_player_weapon(local_player)
+    if not weapon then return end
+    local weapon_id = entity.get_prop(weapon, "m_iItemDefinitionIndex")
+    local bullet_speed = get_bullet_speed(weapon_id)
+    local weapon_damage = get_weapon_damage(weapon_id)
+    local is_scout = weapon_id == 40
+    local optimize_jump_scout = ui.get(ui_elements.jump_scout_opt) and is_scout
+    local enemies = entity.get_players(true)
+    local local_hp = entity.get_prop(local_player, "m_iHealth")
+
+    debug_info = {}
+    handle_entities()
+    -- bruteforse 'xd'
+    for _, enemy in ipairs(entity.get_players(true)) do
+        init_brute_data(enemy)
+    end
+
+    if not resolved_target or not entity.is_alive(resolved_target) then
+        resolved_target = nil
+        for _, enemy in ipairs(enemies) do
+            if resolver_data[enemy] and (resolver_data[enemy].hit_count > 0 or resolver_data[enemy].miss_count < 3) then
+                resolved_target = enemy
+                client.color_log(255, 255, 255, "[IMMORTAL] пидарас: " .. entity.get_player_name(enemy))
+                break
+            end
+        end
+        if not resolved_target and #enemies > 0 then
+            resolved_target = enemies[1]
+            client.color_log(255, 255, 255, "[IMMORTAL] Resolved target: " .. entity.get_player_name(enemies[1]))
+        end
+        if not resolved_target then
+            client.color_log(255, 255, 255, "[IMMORTAL] No resolved_target selected")
+        end
+    end
+
+    if resolved_target then
+        enemies = {resolved_target}
+    end
+
+ 
+
+    for _, enemy in ipairs(enemies) do
+        if entity.is_alive(enemy) then
+            local should_process = update_enemy_data_fix(enemy) or (ui.get(ui_elements.dormant_aimbot) and enemy == resolved_target)
+            local is_visible = entity.get_prop(enemy, "m_bSpotted") == 1 or (ui.get(ui_elements.dormant_aimbot) and enemy == resolved_target)
+            -- brute helper '-'
+            if ui.get(ui_elements.a_brute) then
+               init_brute_data(enemy)
+                if brute_data[enemy].state == "BRUTEFORCE" then
+                    apply_brute_angles(enemy)
+                end
+            end
+
+            if should_process then
+                local data = resolver_data[enemy]
+                local enemy_hp = entity.get_prop(enemy, "m_iHealth")
+                local pred_x, pred_y, pred_z = choose_prediction(enemy, local_x, local_y, local_z, bullet_speed, optimize_jump_scout)
+
+                if ui.get(ui_elements.fakelag_optimization) then
+                    pred_x, pred_y, pred_z = predict_fakelag_position(enemy, pred_x, pred_y, pred_z)
+                end
+                local distance = math.sqrt((pred_x - local_x)^2 + (pred_y - local_y)^2 + (pred_z - local_z)^2)
+                pred_x, pred_y, pred_z = compensate_spread(weapon_id, get_player_state(enemy), pred_x, pred_y, pred_z, distance)
+                local eye_yaw = entity.get_prop(enemy, "m_angEyeAngles[1]") or 0
+                local lby = get_lower_body_yaw(enemy)
+                local vx = entity.get_prop(enemy, "m_vecVelocity[0]") or 0
+                local vy = entity.get_prop(enemy, "m_vecVelocity[1]") or 0
+                local vel_yaw = math.deg(math.atan2(vy, vx))
+                local yaw_diff = angle_difference(eye_yaw, vel_yaw)
+                local lby_diff = angle_difference(eye_yaw, lby)
+                local pose_yaw = get_real_yaw_from_animations(enemy)
+                local final_yaw = pose_yaw
+                local freshness_factor, freshness_ticks = calculate_anim_freshness(enemy)
+                if freshness_factor < 0.3 then
+                    final_yaw = extrapolate_yaw_from_anim_history(enemy, data)
+                    data.confidence = math.max(30, data.confidence - 10)
+                end
+
+                table.insert(data.yaw_history, eye_yaw)
+                if #data.yaw_history > 10 then table.remove(data.yaw_history, 1) end
+                table.insert(data.lby_history, lby)
+                if #data.lby_history > 10 then table.remove(data.lby_history, 1) end
+
+                local is_jittering = detect_jitter_pattern(data.yaw_history)
+                if is_jittering then
+                    data.confidence = math.max(50, data.confidence - 3)
+                    data.aa_pattern = "jitter"
+                else
+                    data.confidence = math.min(100, data.confidence + 3)
+                end
+
+
+                if mode == "Custom" then
+                    if ui.get(ui_elements.alternative_jitter) then
+                        local jitter_pattern, jitter_amount = AlternativeDetectJitterPattern(enemy, data)
+                        if jitter_pattern ~= "unknown" and jitter_amount > 0 then
+                            local desync_side = data.desync_side or 0
+                            if jitter_pattern == "random" then
+                                local adjust = math.random(-jitter_amount * 0.5, jitter_amount * 0.5)
+                                final_yaw = normalize_angle(pose_yaw + adjust)
+                            elseif jitter_pattern == "switch" then
+                                final_yaw = normalize_angle(pose_yaw + (desync_side > 0 and jitter_amount or -jitter_amount))
+                            elseif jitter_pattern == "static" then
+                                final_yaw = lby
+                            end
+                            data.aa_pattern = "jitter_" .. jitter_pattern
+                            data.confidence = math.max(50, data.confidence - 5)
+                        else
+                            final_yaw = should_use_lby(enemy, lby, eye_yaw, state, data.last_lby_update) and lby or pose_yaw
+                        end
+                    else
+                        final_yaw = should_use_lby(enemy, lby, eye_yaw, state, data.last_lby_update) and lby or pose_yaw
+                    end
+                else
+                    if should_use_lby(enemy, lby, eye_yaw, state, data.last_lby_update) then
+                        final_yaw = lby
+                        data.confidence = math.min(100, data.confidence + 10)
+                        data.last_lby_update = globals.curtime()
+                    elseif detect_fakelag(enemy) then
+                        final_yaw = pose_yaw
+                        data.confidence = math.max(60, data.confidence - 5)
+                    end
+                end
+
+
+                final_yaw = enhanced_defensive_fix(enemy, final_yaw)
+                if is_shooting(enemy) then
+                    final_yaw = pose_yaw
+                    data.confidence = 100
+                end
+                if anim_state == "running" then
+                    final_yaw = normalize_angle(final_yaw + 3)
+                elseif anim_state == "crouching" then
+                    final_yaw = normalize_angle(final_yaw - 3)
+                end
+
+
+                if ui.get(ui_elements.resolver_correction) then
+                    local correction_intensity = ui.get(ui_elements.resolver_correction_intensity) / 100
+                    local latency = client.latency()
+                    local ping_factor = math.clamp(latency / 0.1, 0.5, 1.5)
+                    local speed = math.sqrt((entity.get_prop(enemy, "m_vecVelocity[0]") or 0)^2 + (entity.get_prop(enemy, "m_vecVelocity[1]") or 0)^2)
+                    local speed_factor = math.clamp(1 + (speed / 250), 1.0, 1.5)
+                    local sim_time = entity.get_prop(enemy, "m_flSimulationTime") or 0
+                    local anim_freshness = sim_time > 0 and (globals.curtime() - sim_time) / globals.tickinterval() or 0
+                    local freshness_factor = math.clamp(1 - (anim_freshness / 9), 0.5, 1.0)
+                    local pose_yaw = entity.get_prop(enemy, "m_flPoseParameter", 11) or 0
+                    pose_yaw = (pose_yaw * 360) - 180
+                
+                    local adaptive_correction = 58 * correction_intensity * ping_factor * speed_factor * freshness_factor
+                    final_yaw = math.lerp(data.last_yaw or final_yaw, normalize_angle(pose_yaw + (data.desync_side * adaptive_correction)), 0.5)
+                    data.last_yaw = final_yaw
+                end
+                local anim_state = get_animation_state(enemy)
+                local state = get_player_state(enemy)
+                
+                local mode = ui.get(ui_mode_select)
+                if mode == "Custom" then
+                    if ui.get(ui_elements.alternative_jitter) then
+                        local jitter_pattern, jitter_amount = AlternativeDetectJitterPattern(enemy, data)
+                        if jitter_pattern ~= "unknown" and jitter_amount > 0 then
+                            local desync_side = data.desync_side or 0
+                            if jitter_pattern == "random" then
+
+                                local adjust = math.random(-jitter_amount * 0.5, jitter_amount * 0.5)
+                                final_yaw = normalize_angle(pose_yaw + adjust)
+                            elseif jitter_pattern == "switch" then
+                                -- м с учетом стороны десинхрона
+                                final_yaw = normalize_angle(pose_yaw + (desync_side > 0 and jitter_amount or -jitter_amount))
+                            elseif jitter_pattern == "static" then
+                                -- для статичного джиттера LBY
+                                final_yaw = lby
+                            end
+                            data.aa_pattern = "jitter_" .. jitter_pattern
+                            data.confidence = math.max(50, data.confidence - 5)
+                            if ui.get(ui_new_logs_enable) then
+                                client.color_log(255, 165, 0, string.format(
+                                    "[IMMORTAL] Jitter: Enemy=%s, Pattern=%s, Amount=%.1f, Yaw=%.1f, Confidence=%.0f",
+                                    entity.get_player_name(enemy), jitter_pattern, jitter_amount, final_yaw, data.confidence
+                                ))
+                            end
+                        else
+
+                            final_yaw = should_use_lby(enemy, lby, eye_yaw, state, data.last_lby_update) and lby or pose_yaw
+                        end
+                    else
+
+                        final_yaw = should_use_lby(enemy, lby, eye_yaw, state, data.last_lby_update) and lby or pose_yaw
+                    end
+                end
+                    if ui.get(ui_elements.neural_mode) then
+                    run_neural_network(enemies)
+               
+                else
+                    table.insert(data.yaw_history, eye_yaw)
+                    if #data.yaw_history > 10 then table.remove(data.yaw_history, 1) end
+                    table.insert(data.lby_history, lby)
+                    if #data.lby_history > 10 then table.remove(data.lby_history, 1) end
+
+                    local is_jittering = detect_jitter_pattern(data.yaw_history)
+                    if is_jittering then
+                        data.confidence = math.max(30, data.confidence - 5)
+                        data.aa_pattern = "jitter"
+                    else
+                        data.confidence = math.min(100, data.confidence + 5)
+                    end
+                    
+                    if ui.get(ui_elements.jitter_detection) and is_jittering then
+                        local desync_side = detect_desync_pattern(data.yaw_history)
+                        if desync_side ~= 0 then
+                            local lby_stability = std_dev(data.lby_history)
+                            if lby_stability < ui.get(ui_elements.jitter_lby_threshold) then
+                                final_yaw = lby
+                                data.confidence = math.min(100, data.confidence + 20)
+                                data.aa_pattern = "jitter_lby"
+                            else
+                                final_yaw = normalize_angle(pose_yaw + (desync_side * ui.get(ui_elements.desync_range)))
+                                data.confidence = math.max(40, data.confidence - 10)
+                            end
+                        end
+                    end
+                    
+                    if should_use_lby(enemy, lby, eye_yaw, state, data.last_lby_update) then
+                        final_yaw = lby
+                        data.confidence = math.min(100, data.confidence + 15)
+                        data.last_lby_update = globals.curtime()
+                    elseif trace_to_lby(enemy, lby) then
+                        final_yaw = lby
+                        data.confidence = math.min(100, data.confidence + 20)
+                    elseif detect_fakelag(enemy) then
+                        final_yaw = pose_yaw
+                        data.confidence = math.max(40, data.confidence - 10)
+                    end
+
+                    if anim_state == "running" then
+                        final_yaw = normalize_angle(final_yaw + 5)
+                        data.confidence = math.max(50, data.confidence - 5)
+                    elseif anim_state == "crouching" then
+                        final_yaw = normalize_angle(final_yaw - 5)
+                    end
+
+                    final_yaw = smart_yaw_correction(enemy, final_yaw, data, yaw_diff, is_jittering, is_visible)
+                    
+                    if ui.get(ui_elements.desync_detection) then
+                        local desync_side = detect_desync_pattern(data.yaw_history)
+                        if desync_side ~= 0 then
+                            local desync_range = ui.get(ui_elements.desync_range)
+                            final_yaw = normalize_angle(final_yaw + desync_range * desync_side)
+                            data.desync_side = desync_side
+                        elseif state == "standing" and not detect_fakelag(enemy) then
+                            final_yaw = lby
+                        end
+                    end
+
+                    if is_shooting(enemy) then
+                        final_yaw = pose_yaw
+                        data.confidence = 100
+                    end
+
+--                    if ui.get(ui_elements.experimental_mode) and ui.get(ui_elements.flick_detection) and is_visible then
+--                        local current_time = globals.realtime()
+--                        local time_delta = globals.tickinterval()
+--                        local angular_velocity = angle_difference(eye_yaw, data.last_yaw) / time_delta
+--                        table.insert(data.angular_velocities, angular_velocity)
+--                        if #data.angular_velocities > 5 then table.remove(data.angular_velocities, 1) end
+--
+--                        local reaction_time = current_time - data.last_non_flick_time
+--                        local is_reaction_flick = reaction_time < ui.get(ui_elements.flick_reaction_time) / 1000
+--                        local consistency_check = #data.angular_velocities >= 3 and std_dev(data.angular_velocities) < 10
+--
+--                        if angular_velocity > ui.get(ui_elements.flick_velocity_threshold) and (consistency_check or is_reaction_flick) then
+--                            if ui.get(ui_elements.flick_mode) == "Fake Flicks" then
+--                                final_yaw = normalize_angle(final_yaw + (data.desync_side * ui.get(ui_elements.flick_yaw_correction)))
+--                            elseif ui.get(ui_elements.flick_mode) == "Defensive Flicks" then
+--                                final_yaw = normalize_angle(final_yaw - (data.desync_side * ui.get(ui_elements.flick_yaw_correction)))
+--                            end
+--                            data.flick_detected = true
+--                            data.confidence = math.max(40, data.confidence - 10)
+--                        else
+--                            data.flick_detected = false
+--                            data.last_non_flick_time = current_time
+--                        end
+--                        data.last_yaw = eye_yaw
+--                        data.last_time = current_time
+--                    end
+
+                    final_yaw = enhanced_defensive_fix(enemy, final_yaw)
+
+
+
+                    if ui.get(ui_elements.experimental_mode) and is_visible and data.confidence > 50 then
+                        if math.random() > 0.7 then
+                            plist.set(enemy, "Override preferred hitbox", "Chest")
+                        end
+                    end
+
+                    if ui.get(ui_elements.resolver_correction) then
+                        local latency = client.latency() 
+                        local tick_rate = globals.tickinterval()
+                        local data = resolver_data[enemy] or {}
+                        local state = get_player_state(enemy)
+                        local loss = globals.packet_loss and globals.packet_loss() or 0 -- потери пакетов
+                        local sim_time = entity.get_prop(enemy, "m_flSimulationTime") or 0
+                        local anim_freshness = sim_time > 0 and (globals.curtime() - sim_time) / tick_rate or 0
+                    
+                        -- проверка валидности 
+                        if not data or not pose_yaw or not yaw_diff then return end
+                    
+                        -- автоматическая интенсивность коррекции
+                        local ping_factor = math.clamp(latency / 0.08, 0.5, 3.0) -- увеличен для высоких пингов
+                        local loss_factor = math.clamp(1 + (loss / 10), 1.0, 1.5) -- усилен учет потерь
+                        local state_factor = state_scores[state] or 1.0
+                        local speed = math.sqrt((entity.get_prop(enemy, "m_vecVelocity[0]") or 0)^2 + (entity.get_prop(enemy, "m_vecVelocity[1]") or 0)^2)
+                        local speed_factor = math.clamp(1 + (speed / 250), 1.0, 1.7)
+                        local anim_factor = math.clamp(1 - (anim_freshness / 10), 0.5, 1.0) 
+
+
+                        local correction_intensity = math.clamp(ping_factor * state_factor * loss_factor * speed_factor * anim_factor, 0.5, 2.5)
+                        local base_correction = 58 -- базовое yaw
+                        local adaptive_factor = math.clamp(1 + (data.miss_count or 0) * 0.05, 1.0, 1.3) * math.clamp(data.confidence / 100, 0.5, 1.0)
+                        local yaw_correction = base_correction * correction_intensity * adaptive_factor
+
+
+                        local yaw_history = data.yaw_history or {}
+                        local yaw_std_dev = calculate_std_dev(yaw_history) or 0
+                        local yaw_prediction = 0
+                        if #yaw_history >= 3 and yaw_std_dev > 10 then
+
+                            local last_yaw = yaw_history[#yaw_history] or pose_yaw
+                            local second_last_yaw = yaw_history[#yaw_history - 1] or last_yaw
+                            local yaw_trend = normalize_angle(last_yaw - second_last_yaw)
+                            yaw_prediction = yaw_trend * math.clamp(ping_factor, 0.5, 1.5) * 0.5
+                            yaw_correction = yaw_correction + yaw_prediction
+                        end
+
+
+                        if is_jittering then
+                            yaw_correction = yaw_correction * 1.2
+                            data.confidence = math.max(30, data.confidence - 5)
+                        end
+--                        if ui.get(ui_elements.flick_detection) and data.flick_detected then
+--                            local flick_adjust = ui.get(ui_elements.flick_yaw_correction) * (data.desync_side > 0 and 1.5 or -1.5)
+--                            yaw_correction = yaw_correction + flick_adjust
+--                            data.confidence = math.max(40, data.confidence - 3)
+--                        end
+                        if ui.get(ui_elements.desync_detection) and data.desync_side ~= 0 then
+                            local desync_adjust = data.desync_side * math.clamp(20 + yaw_std_dev, 15, 45)
+                            yaw_correction = yaw_correction + desync_adjust
+                        end
+                    
+
+                        local yaw_diff_threshold = math.clamp(25 + (latency * 250), 20, 70)
+                        if yaw_diff > yaw_diff_threshold or is_jittering or data.flick_detected then
+                            -- усиленное сглаживание для хай пингов
+                            local lerp_factor = math.clamp(0.3 * ping_factor * (1 + loss / 20), 0.2, 0.9)
+                            final_yaw = math.lerp(data.last_yaw or final_yaw, normalize_angle(pose_yaw + yaw_correction), lerp_factor)
+
+
+                            data.last_yaw = final_yaw
+                            data.confidence = math.max(30, (data.confidence or 100) - (is_jittering and 5 or 3))
+                            resolver_data[enemy] = data
+
+
+                            if ui.get(ui_toggle_logs) then
+                                client.color_log(255, 255, 255, (string.format(
+                                    "[IMMORTAL] Yaw correction for %s: %.1f° (Ping: %.0fms, Loss: %.0f%%, State: %s, Speed: %.0f, AnimFresh: %.1f, PredYaw: %.1f, Confidence: %.0f%%)", --- бляяя лан похуй
+                                    entity.get_player_name(enemy), yaw_correction, latency * 1000, loss, state, speed, anim_freshness, yaw_prediction, data.confidence
+                                )))
+                            end
+                        end
+                    end
+                    if not (ui.get(ui_elements.experimental_mode) and ui.get(ui_elements.flick_detection)) or not data.flick_detected then
+                        final_yaw = lerp(data.last_yaw, final_yaw and 0.7 or 0.5)
+                    end
+                    data.last_yaw = final_yaw
+
+                    local hit_chance = calculate_hit_chance(enemy, pred_x, pred_y, pred_z, local_x, local_y, local_z, weapon_id)
+                    local min_hit_chance = hit_chance_enabled and ui.get(ui_elements.hit_chance_override) or 75
+                    local should_shoot = hit_chance >= min_hit_chance and (data.confidence >= ui.get(ui_elements.confidence_threshold) or (is_visible and data.confidence >= 30))
+--[[
+                    --
+                    if not should_shoot then
+--                        client.delay_call(ui.get(ui_elements.low_confidence_delay) / 1000, function()
+                            if entity.is_alive(enemy) then
+                                plist.set(enemy, "Force body yaw", true)
+                                plist.set(enemy, "Force body yaw value", clamp(final_yaw, -60, 60))
+                            end
+--                        end)
+                        plist.set(enemy, "Force body yaw", false) -- ъаъаъаъа для прикола оставил
+
+                        plist.set(enemy, "Override preferred hitbox", nil) ]]-- !
+                    if not should_shoot then
+                        local data = resolver_data[enemy] or { confidence = 100, last_yaw = final_yaw }
+                        local safe_yaw = math.lerp(data.last_yaw or final_yaw, final_yaw, 0.3)
+                        if entity.is_alive(enemy) then
+                            plist.set(enemy, "Force body yaw", true)
+                            plist.set(enemy, "Force body yaw value", clamp(safe_yaw, -60, 60))
+                            local safe_hitbox = (data.confidence > 50 and ui.get(ui_elements.smart_head_aim)) and "Head" or "Chest"
+                            plist.set(enemy, "Override preferred hitbox", safe_hitbox)
+                        end
+                        if ui.get(ui_elements.dormant_aimbot) and data.is_dormant then
+                            local pred_x, pred_y, pred_z = choose_prediction(enemy, local_x, local_y, local_z, bullet_speed, ui.get(ui_elements.jump_scout_opt) and is_scout)
+                            -- апасненька гейсекс апи гавно
+--                            plist.set(enemy, "Override aimbot position", pred_x, pred_y, pred_z) -- !!
+                        end
+                        if ui.get(ui_new_logs_enable) then
+                            client.color_log(255, 165, 0, string.format(
+                                "[IMMORTAL] Low confidence: Enemy=%s, SafeYaw=%.1f, Hitbox=%s, Confidence=%.0f, Dormant=%s",
+                                entity.get_player_name(enemy), safe_yaw, safe_hitbox, data.confidence, data.is_dormant and "Yes" or "No"
+                            ))
+                        end
+                        data.last_yaw = safe_yaw
+                        resolver_data[enemy] = data
+                    else
+                        if is_visible then
+                            plist.set(enemy, "Force body yaw", true)
+                            plist.set(enemy, "Force body yaw value", clamp(final_yaw, -60, 60))
+
+                            if ui.get(ui_elements.smart_body_aim) then
+                                local should_force_body = enemy_hp <= ui.get(ui_elements.smart_body_hp_threshold)
+                                pred_x, pred_y, pred_z = apply_body_hitbox_correction(enemy, pred_x, pred_y, pred_z, final_yaw)
+                                plist.set(enemy, "Force body yaw value", clamp(final_yaw + (resolver_data[enemy].desync_side or 0) * 58, -60, 60))
+                                if ui.get(ui_elements.smart_body_lethal) and enemy_hp <= weapon_damage then
+                                    should_force_body = true
+                                end
+                                if ui.get(ui_elements.smart_body_multi_kill) and can_multi_kill(local_player, weapon_damage, enemies) then
+                                    should_force_body = true
+                                end
+                                if should_force_body and data.confidence > 50 then
+                                    plist.set(enemy, "Override preferred hitbox", "Chest")
+                                else
+                                    plist.set(enemy, "Override preferred hitbox", "Head")
+                                end
+                            end
+                            -- bruteforse '?' [tts]
+                            if ui.get(ui_elements.a_brute) then
+                                init_brute_data(enemy)
+                                local brute = brute_data[enemy]
+                                brute.state = "BRUTEFORCE"
+                                brute.end_tick = globals.tickcount() + ui.get(ui_elements.brute_duration)
+                                brute.yaw_index = (brute.yaw_index % #brute_angles.yaw) + 1
+                                if ui.get(ui_new_logs_enable) then
+                                    client.color_log(255, 165, 0, string.format(
+                                        "[IMMORTAL] Brute activated on shootable: Enemy=%s", entity.get_player_name(enemy)
+                                    ))
+                                end
+                                brute_data[enemy] = brute
+                            end
+                            if ui.get(ui_elements.smart_head_aim) and local_hp <= ui.get(ui_elements.smart_head_hp_threshold) then
+                                if not is_fast_firing_weapon(weapon_id) and enemy_hp > weapon_damage then
+                                    plist.set(enemy, "Override preferred hitbox", "Head")
+                                end
+                            end
+
+                            if ui.get(ui_elements.dormant_aimbot) and data.is_dormant and weapon_damage < ui.get(ui_elements.dormant_min_damage) then
+                                plist.set(enemy, "Minimum damage", ui.get(ui_elements.dormant_min_damage))
+                            end
+                        end
+                    end
+                end
+
+                if ui.get(ui_elements.indicators) then
+                    local distance = math.sqrt((pred_x - local_x)^2 + (pred_y - local_y)^2 + (pred_z - local_z)^2)
+                    local real_x, real_y, real_z = entity.hitbox_position(enemy, 0)
+                    table.insert(debug_info, {
+                        name = entity.get_player_name(enemy),
+                        yaw = final_yaw,
+                        speed = data.avg_speed,
+                        pred = ui.get(ui_elements.prediction_factor),
+                        flick = data.flick_detected and "Yes" or "No",
+                        angular_velocity = data.angular_velocities[#data.angular_velocities] or 0,
+                        fakelag = ui.get(ui_elements.fakelag_optimization) and detect_fakelag(enemy) and "Yes" or "No",
+                        visibility = is_visible and "Full" or "Partial",
+                        misses = data.miss_count,
+                        hits = data.hit_count,
+--                        aa_pattern = ui.get(ui_elements.persist_mode) and data.aa_pattern or "N/A",
+                        hit_chance = calculate_hit_chance(enemy, pred_x, pred_y, pred_z, local_x, local_y, local_z, weapon_id),
+                        is_dormant = data.is_dormant and "Yes" or "No",
+                        distance = distance,
+                        resolver_correction = ui.get(ui_elements.resolver_correction) and (ui.get(ui_elements.resolver_correction_intensity) / 100) or "Off",
+                        confidence = data.confidence,
+                        lby = lby,
+                        anim_state = anim_state,
+                        jitter_detection = ui.get(ui_elements.jitter_detection) and is_jittering and "Active" or "Inactive",
+                        lby_stability = ui.get(ui_elements.jitter_detection) and std_dev(data.lby_history) or 0,
+                        pose_error = data.pose_error and "Yes" or "No",
+                        pred_x = pred_x, pred_y = pred_y, pred_z = pred_z,
+                        real_x = real_x, real_y = real_y, real_z = real_z,
+--                        neural_mode = ui.get(ui_elements.neural_mode) and "Active" or "Inactive"
+                    })
+                end
+            end
+        else
+            if resolver_data[enemy] and (globals.realtime() - resolver_data[enemy].last_seen > 3.0) then
+                resolver_data[enemy] = nil
+                if enemy == resolved_target then resolved_target = nil end
+                if enemy == persist_target then persist_target = nil end
+            end
+        end
+    end
+end
+
+
+
+local refs = { dt = { ui.reference("RAGE", "Aimbot", "Double tap") } }
+local function vec_3(_x, _y, _z) return { x = _x or 0, y = _y or 0, z = _z or 0 } end
+local function ticks_to_time(ticks) return globals.tickinterval() * ticks end
+
+local function player_will_peek()
+    local enemies = entity.get_players(true)
+    if #enemies == 0 then return false end
+
+    local eye_position = vec_3(client.eye_position())
+    local velocity_prop_local = vec_3(entity.get_prop(entity.get_local_player(), "m_vecVelocity[0]") or 0, entity.get_prop(entity.get_local_player(), "m_vecVelocity[1]") or 0, entity.get_prop(entity.get_local_player(), "m_vecVelocity[2]") or 0)
+    local predicted_eye_position = vec_3(
+        eye_position.x + velocity_prop_local.x * ticks_to_time(1),
+        eye_position.y + velocity_prop_local.y * ticks_to_time(1),
+        eye_position.z + velocity_prop_local.z * ticks_to_time(1)
+    )
+
+    for _, player in ipairs(enemies) do
+        local velocity_prop = vec_3(entity.get_prop(player, "m_vecVelocity[0]") or 0, entity.get_prop(player, "m_vecVelocity[1]") or 0, entity.get_prop(player, "m_vecVelocity[2]") or 0)
+        local origin = vec_3(entity.get_prop(player, "m_vecOrigin"))
+        local predicted_origin = vec_3(
+            origin.x + velocity_prop.x * ticks_to_time(1),
+            origin.y + velocity_prop.y * ticks_to_time(1),
+            origin.z + velocity_prop.z * ticks_to_time(1)
+        )
+        entity.set_prop(player, "m_vecOrigin", predicted_origin.x, predicted_origin.y, predicted_origin.z)
+        local head_origin = vec_3(entity.hitbox_position(player, 0))
+        entity.set_prop(player, "m_vecOrigin", origin.x, origin.y, origin.z)
+
+        local _, damage = client.trace_bullet(
+            entity.get_local_player(),
+            predicted_eye_position.x, predicted_eye_position.y, predicted_eye_position.z,
+            head_origin.x, head_origin.y, head_origin.z
+        )
+        if damage > 0 then return true end
+    end
+    return false
+end
+
+
+local function on_hit(e)
+    if not ui.get(ui_resolver_enabled) then return end
+    local target = client.userid_to_entindex(e.target)
+    if not target or not entity.is_alive(target) or not entity.is_enemy(target) then return end
+    local data = resolver_data[target] or {}
+    data.miss_count = 0
+    data.confidence = math.min(100, data.confidence + 10)
+    if nn_network then
+        local inputs = get_neural_inputs(target)
+        local expected_yaw = entity.get_prop(target, "m_angEyeAngles[1]") or 0
+        nn_network:train(inputs, {expected_yaw / 360, 1, 0, 0}) --  хит
+    end
+    resolver_data[target] = data
+end
+
+
+
+
+
+-- миссваре
+local function on_miss(e)
+    if not ui.get(ui_resolver_enabled) then return end
+    local target = client.userid_to_entindex(e.target)
+    if not target or not entity.is_alive(target) or not entity.is_enemy(target) then return end
+    local data = resolver_data[target] or {}
+    data.miss_count = (data.miss_count or 0) + 1
+    data.confidence = math.max(30, data.confidence - 8)
+    --[[
+    if nn_network then
+        local inputs = get_neural_inputs(target)
+        local expected_yaw = entity.get_prop(target, "m_angEyeAngles[1]") or 0
+        nn_network:train(inputs, {expected_yaw / 360, 0, 0, 0})
+    end]]
+    if ui.get(ui_elements.a_brute) then
+        init_brute_data(target)
+        local brute = brute_data[target]
+        brute.misses = brute.misses + 1
+        if brute.misses >= 2 then
+            brute.state = "BRUTEFORCE"
+            brute.end_tick = globals.tickcount() + ui.get(ui_elements.brute_duration)
+            brute.yaw_index = (brute.yaw_index % #brute_angles.yaw) + 1
+            if ui.get(ui_new_logs_enable) then
+                client.color_log(255, 165, 0, string.format(
+                    "[IMMORTAL] Brute activated on miss: Enemy=%s, Misses=%d",
+                    entity.get_player_name(target), brute.misses
+                ))
+            end
+        end
+        brute_data[target] = brute
+    end
+    resolver_data[target] = data
+    if ui.get(ui_new_logs_enable) then
+        local reason = e.reason or "unknown"
+        local hitgroup = e.hitgroup or 0
+        local state = get_player_state(target) or "unknown"
+        local aa_pattern = data.aa_pattern or "unknown"
+        client.color_log(255, 100, 100, string.format(
+            "[IMMORTAL] Miss: Enemy=%s, Reason=%s, Hitgroup=%d, State=%s, AA=%s, Confidence=%.0f, MissCount=%d",
+            entity.get_player_name(target), reason, hitgroup, state, aa_pattern, data.confidence, data.miss_count
+        ))
+    end
+end
+
+
+client.set_event_callback('paint_ui', function()
+    if not ui.get(ui_elements.neural_mode) or not ui.get(ui_elements.neural_visualization) then return end
+    if not resolved_target or not entity.is_alive(resolved_target) then
+    resolved_target = nil
+    for _, enemy in ipairs(enemies) do
+        if resolver_data[enemy] and (resolver_data[enemy].hit_count > 0 or resolver_data[enemy].miss_count < 3) then
+            resolved_target = enemy
+            client.color_log(255, 255, 255, "[IMMORTAL] Selected resolved target: " .. entity.get_player_name(enemy))
+            break
+        end
+    end
+    if not resolved_target and #enemies > 0 then
+        resolved_target = enemies[1]
+        client.color_log(255, 255, 255, "[IMMORTAL] Resolved target: " .. entity.get_player_name(enemies[1]))
+    end
+    if not resolved_target then
+        client.color_log(255, 255, 255, "[IMMORTAL] No resolved target")
+    end
+end
+    if not nn_network then
+        client.color_log(255, 255, 255, "[IMMORTAL] Error: Neural network not initialized")
+        return
+    end
+    local scr_w, scr_h = client.screen_size()
+    renderer.text(scr_w - 300, scr_h - 50, 255, 255, 255, 255, nil, 0, "[N3R4z1m] Rendering Neural Network") -- АХУЕТЬ НЕРАЗИМ
+    nn_network:render()
+end)
+    end)
+    if not success then
+        client.color_log(255, 255, 255, "[IMMORTAL] Critical error in resolver: ", err)
+    end
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+-- WaRnInG ⬇
+-- RNJ "NJ GTHTDTK NJN {ETCJC T<FYYSQ!!!
