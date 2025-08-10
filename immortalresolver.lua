@@ -322,11 +322,11 @@ local function get_rainbow_color(time)
     return string.format("\a%02X%02X%02XFF", r, g, b)
 end
 
-local label_original = ui.new_label("LUA", "B", "         \a909090FFRELEASE      \aFFFFFFFF↪\aFFFFFFFF       \a808080FFv1.0.0\a808080FF")
+local label_original = ui.new_label("LUA", "B", "         \a909090FFRELEASE             \a808080FFv1.0.0\a808080FF")
 client.set_event_callback("paint_ui", function()
     local time = globals.realtime() * 4
     local color_code = get_rainbow_color(time)
-    local banner_text = string.format("         \a909090FFRELEASE      \aFFFFFFFF↪\aFFFFFFFF       \a808080FF%sv1.0.0\a808080FF", color_code)
+    local banner_text = string.format("         \a909090FFRELEASE            \a808080FF%sv1.0.0\a808080FF", color_code)
     ui.set(label_original, banner_text)
 end)
 
